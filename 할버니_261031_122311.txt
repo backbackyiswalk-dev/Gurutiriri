@@ -1,0 +1,769 @@
+-- Self-contained Chapter 1 / Chapter 2 launcher.
+local function runChapter1()
+-- MONOCHROME client suite. F5 puzzles, F6 VER, F7 closets, F8 unload,
+-- F9 keys, F10 objects, RightShift menu. Movement/automation start disabled.
+assert(game.PlaceId == 134208374070897, 'MONOCHROME only')
+local env = getgenv()
+if env.PelicanMonochromeESP then env.PelicanMonochromeESP.Stop() end
+local Players, UIS = game:GetService('Players'), game:GetService('UserInputService')
+local RunService, Lighting = game:GetService('RunService'), game:GetService('Lighting')
+local player = Players.LocalPlayer
+local state = {Running=true, Entries={}, Counts={}, Prompts={}, Monsters=true, Closets=true,
+Keys=true, Objects=false, Puzzles=true, Radar=true, Tracers=false, Distance=true,
+Speed=false, WalkSpeed=24, Noclip=false, Fly=false, FlySpeed=40, Repel=false,
+RepelRadius=10, RepelSpeed=60, Fullbright=false, NoFog=false, NoStatic=false,
+CustomFOV=false, FOV=80, Instant=false, AutoInteract=false, MaxDistance=300,
+MetresPerStud=0.28, LastAction='', Code=nil, TeleportUntil=0}
+env.PelicanMonochromeESP = state
+local connections, drawings, propertyGroups = {}, {}, {}
+local Library, SaveManager, ThemeManager
+local gui = Instance.new('ScreenGui')
+gui.Name='PelicanMonochromeESP'; gui.ResetOnSpawn=false; gui.IgnoreGuiInset=true
+gui.Parent=player:WaitForChild('PlayerGui')
+local highlights=Instance.new('Folder'); highlights.Name='PelicanMonochromeHighlights'; highlights.Parent=workspace
+local flight, currentCharacter, parts = nil, nil, {}
+local language, labels = '한국어', {}
+local function tr(en, ru, ko) return language=='Русский' and ru or language=='한국어' and ko or en end
+local function notify(message)
+state.LastAction=message
+if Library and not Library.Unloaded then Library:Notify(message, 5) end
+end
+-- Store properties only when a feature first changes them; restore on toggle-off/unload.
+local function force(group, object, property, value)
+local bucket=propertyGroups[group]
+if not bucket then bucket={}; propertyGroups[group]=bucket end
+local saved=bucket[object]
+if not saved then saved={}; bucket[object]=saved end
+if saved[property]nil then saved[property]={value=object[property]} end
+if object[property]~=value then object[property]=value end
+end
+local function restore(group)
+local bucket=propertyGroups[group]
+if not bucket then return end
+for object, props in bucket do
+for property, saved in props do pcall(function() object[property]=saved.value end) end
+end
+propertyGroups[group]=nil
+end
+local function stopFlight()
+if flight then
+flight.Velocity:Destroy(); flight.Orientation:Destroy(); flight.Attachment:Destroy()
+flight=nil
+end
+restore('flight')
+end
+function state.Stop(fromLibrary)
+if not state.Running then return end
+state.Running=false
+RunService:UnbindFromRenderStep('PelicanMonochromeRender')
+for _,c in connections do c:Disconnect() end
+stopFlight()
+local groups={}; for name in propertyGroups do table.insert(groups,name) end
+for _,name in groups do restore(name) end
+for _,d in drawings do pcall(function() d:Remove() end) end
+highlights:Destroy(); gui:Destroy(); table.clear(state.Entries)
+if env.PelicanMonochromeESPstate then env.PelicanMonochromeESP=nil end
+if Library and not fromLibrary and not Library.Unloaded then Library:Unload() end
+end
+local function connect(signal, callback)
+local c=signal:Connect(function(...)
+if not state.Running then return end
+local ok,err=pcall(callback,...)
+if not ok then env.PelicanMonochromeLastError=tostring(err); warn('[PelicanMonochrome] '..tostring(err)); state.Stop() end
+end)
+table.insert(connections,c); return c
+end
+local function body()
+local c=player.Character
+return c, c and c:FindFirstChild('HumanoidRootPart'), c and c:FindFirstChildOfClass('Humanoid')
+end
+local function make(class, props, parent)
+local object=Instance.new(class)
+for k,v in props do object[k]=v end
+object.Parent=parent; return object
+end
+local function round(object) make('UICorner',{CornerRadius=UDim.new(1,0)},object) end
+local function label(parent,text,size,position)
+return make('TextLabel',{Text=text,Size=size,Position=position,BackgroundTransparency=1,
+TextColor3=Color3.new(1,1,1),TextStrokeTransparency=0.25,TextSize=14,Font=Enum.Font.GothamMedium},parent)
+end
+local colors={Monsters=Color3.fromRGB(255,70,85),Closets=Color3.fromRGB(75,255,155),
+Keys=Color3.fromRGB(255,220,60),Objects=Color3.fromRGB(90,190,255),Puzzles=Color3.fromRGB(210,130,255)}
+local names={
+DrawerPrompt={'Drawer','Ящик','서랍'}, LockPrompt={'Lock','Замок','자물쇠'},
+PryPrompt={'Plank','Доска','판자'}, ElevatorPrompt={'Elevator','Лифт','엘리베이터'},
+DigitPrompt={'Keypad','Кодовая панель','키패드'}, PickupPrompt={'Item','Предмет','아이템'},
+CrowbarPrompt={'Crowbar','Лом','쇠지렛대'}, BoxPrompt={'Box','Коробка','상자'},
+}
+local radar=make('Frame',{Size=UDim2.fromOffset(160,160),Position=UDim2.new(1,-185,0,55),
+BackgroundColor3=Color3.fromRGB(20,22,30),BackgroundTransparency=0.15},gui); round(radar)
+make('UIStroke',{Thickness=2,Color=colors.Puzzles},radar)
+local centre=make('Frame',{Size=UDim2.fromOffset(6,6),AnchorPoint=Vector2.new(.5,.5),
+Position=UDim2.fromScale(.5,.5),BackgroundColor3=Color3.new(1,1,1)},radar); round(centre)
+local dot=make('Frame',{Size=UDim2.fromOffset(10,10),AnchorPoint=Vector2.new(.5,.5),
+BackgroundColor3=colors.Monsters,Visible=false},radar); round(dot)
+label(radar,'▲',UDim2.fromOffset(30,20),UDim2.fromOffset(65,4))
+local radarText=label(radar,'VER —',UDim2.fromOffset(200,42),UDim2.fromOffset(-20,164))
+local codeHUD=label(gui,'',UDim2.fromOffset(330,58),UDim2.new(.5,-165,0,12))
+local function register(target,anchor,kind,name,seen,prompt)
+if not anchor or not anchor:IsA('BasePart') then return end
+seen[target]=true
+local entry=state.Entries[target]
+if not entry then
+local highlight=make('Highlight',{Adornee=(target:IsA('Model') or target:IsA('BasePart')) and target or anchor,
+DepthMode=Enum.HighlightDepthMode.AlwaysOnTop,FillTransparency=.75,OutlineTransparency=0,
+FillColor=colors[kind],OutlineColor=colors[kind]},highlights)
+local billboard=make('BillboardGui',{Adornee=anchor,AlwaysOnTop=true,Size=UDim2.fromOffset(230,62),
+StudsOffsetWorldSpace=Vector3.new(0,3,0)},gui)
+local text=label(billboard,'',UDim2.fromScale(1,1),UDim2.fromScale(0,0)); text.TextColor3=colors[kind]
+entry={Highlight=highlight,Billboard=billboard,Label=text,Kind=kind}
+if kind=='Monsters' or kind=='Keys' or kind=='Puzzles' then
+if Drawing and type(Drawing.new)'function' then
+local ok,line=pcall(Drawing.new,'Line')
+if ok then line.Thickness=1.5; line.Color=colors[kind]; line.Transparency=1
+entry.Line=line; table.insert(drawings,line) end
+end
+if not entry.Line then
+entry.LineFrame=make('Frame',{AnchorPoint=Vector2.new(.5,.5),BorderSizePixel=0,
+BackgroundColor3=colors[kind],Visible=false},gui)
+end
+end
+state.Entries[target]=entry
+end
+entry.Anchor=anchor; entry.Name=name; entry.Prompt=prompt; entry.Billboard.Adornee=anchor
+end
+local lastPrompt=setmetatable({},{__mode='k'})
+local function promptPosition(p)
+local parent=p.Parent
+if parent and parent:IsA('Attachment') then return parent.WorldPosition end
+if parent and parent:IsA('BasePart') then return parent.Position end
+if parent and parent:IsA('Model') then return parent:GetPivot().Position end
+end
+local function interact(p)
+local _,root=body()
+if not state.Running or not root or not p or not p.Parent or not p.Enabled then return false end
+local pos=promptPosition(p)
+if not pos or (root.Position-pos).Magnitude>p.MaxActivationDistance then return false end
+if os.clock()-(lastPrompt[p] or -math.huge)<1.5 then return false end
+if type(fireproximityprompt)~='function' then return false end
+lastPrompt[p]=os.clock()
+local ok=pcall(fireproximityprompt,p)
+return ok -- Request sent; server success is checked separately for teleports.
+end
+local function occupied(closet)
+local id=closet:GetAttribute('ClosetId')
+for _,p in Players:GetPlayers() do
+local hiding=p:GetAttribute('HidingIn')
+if hiding~=nil and (hidingcloset or tostring(hiding)tostring(id) or hidingcloset.Name) then return true end
+end
+return false
+end
+local function nearest(kind, requireFree)
+local _,root=body(); if not root then return end
+local target,best=nil,math.huge
+for object,e in state.Entries do
+if e.Kindkind and e.Anchor:IsDescendantOf(workspace)
+and (not requireFree or (e.Prompt and e.Prompt.Enabled and not occupied(object))) then
+local d=(root.Position-e.Anchor.Position).Magnitude
+if d<best then target,best=object,d end
+end
+end
+return target,best
+end
+local function scan()
+local seen={}; local map=workspace:FindFirstChild('monochrome')
+local monster=workspace:FindFirstChild('VER')
+if monster then register(monster,monster:FindFirstChild('RootPart') or monster.PrimaryPart,'Monsters','VER',seen) end
+for _,p in Players:GetPlayers() do
+if p~=player and p:GetAttribute('IsMonster')true and p.Character then
+register(p.Character,p.Character:FindFirstChild('HumanoidRootPart'),'Monsters',p.DisplayName,seen)
+end
+end
+state.Prompts={}; state.Code=nil; state.InputCode='????'
+local remaining,locks=0,0
+if map then
+local keypad=map:FindFirstChild('Keypad'); local input={}
+if keypad then
+for i=1,4 do
+local d=keypad:FindFirstChild('Digit'..i); local readout=d and d:FindFirstChild('Readout')
+local text=readout and readout:FindFirstChild('Digit'); input[i]=text and text.Text or '?'
+end
+state.InputCode=table.concat(input)
+end
+local note=map:FindFirstChild('CodeNote'); local printed=note and note:FindFirstChild('Printed')
+local digits=printed and printed:FindFirstChild('Digits')
+if digits and digits:IsA('TextLabel') then
+local code=digits.Text:gsub('%s','')
+if code:match('^%d%d%d%d$`') then state.Code=code end
+end
+if note then register(note,note:IsA('BasePart') and note or note:FindFirstChildWhichIsA('BasePart',true),
+'Puzzles',tr('Code note','Записка с кодом','암호 메모')..': '..(state.Code or '????'),seen) end
+for _,p in map:QueryDescendants('ProximityPrompt') do
+table.insert(state.Prompts,p)
+local t=p:FindFirstAncestorWhichIsA('BasePart')
+if not t then continue end
+local kind,name
+if p.Name'HidePrompt' then kind='Closets'; name=tr('Closet','Шкаф','옷장')..' '..tostring(t:GetAttribute('ClosetId') or '')
+if occupied(t) then name..=tr(' [occupied]',' [занят]',' [사용 중]') end
+elseif p.Name'KeyPrompt' then kind='Keys'; name=tr('Key','Ключ','열쇠')..' '..(t.Parent.Name:match('HiddenKey(%d+)') or '')
+elseif names[p.Name] then kind='Objects'; name=tr(table.unpack(names[p.Name]))
+if p.Name=='DigitPrompt' then kind='Puzzles'; t=t:FindFirstAncestor('Keypad') or t; name..=' '..state.InputCode end
+if p.Name=='PryPrompt' then if t:GetAttribute('Pried')~=true then remaining+=1 else name..=' ✓' end end
+if p.Name=='LockPrompt' and t:GetAttribute('Unlocked')true then name..=' ✓' end
+if p.Name'DrawerPrompt' and t:GetAttribute('Open')true then name..=' ✓' end
+end
+if kind then register(t,t:IsA('BasePart') and t or t:FindFirstChildWhichIsA('BasePart',true),kind,name,seen,p) end
+end
+locks=map:GetAttribute('HeavyLocksOpen') or 0
+end
+local counts={Monsters=0,Closets=0,Keys=0,Objects=0,Puzzles=0}
+for target,e in state.Entries do
+if not seen[target] then
+e.Highlight:Destroy(); e.Billboard:Destroy()
+if e.Line then
+local index=table.find(drawings,e.Line)
+if index then table.remove(drawings,index) end
+pcall(function() e.Line:Remove() end)
+end
+if e.LineFrame then e.LineFrame:Destroy() end
+state.Entries[target]=nil
+else counts[e.Kind]+=1 end
+end
+state.Counts=counts; state.LocksOpen=locks; state.PlanksRemaining=remaining
+local info=tr('Code','Код','암호')..': '..(state.Code or '????')..' | '..tr('Input','Ввод','입력')..': '..state.InputCode
+codeHUD.Text=info
+if labels.Puzzle then labels.Puzzle:SetText(info..'\n'..tr('Locks open','Открыто замков','해제한 자물쇠')..': '..locks..' / 4\n'..tr('Planks left','Досок осталось','남은 판자')..': '..remaining) end
+if labels.Status then labels.Status:SetText(string.format('VER %d | Keys %d | Closets %d\nObjects %d | Clues %d',counts.Monsters,counts.Keys,counts.Closets,counts.Objects,counts.Puzzles)) end
+end
+local busy=false
+local function teleport(kind,index)
+if busy then return end
+local map=workspace:FindFirstChild('monochrome'); local _,root,h=body()
+if not map or not root or not h or h.Health<=0 or player:GetAttribute('HidingIn')~=nil then
+notify(tr('Exit hiding first / character unavailable','Сначала выйдите из укрытия','숨기 상태를 해제하거나 캐릭터를 확인하세요')); return
+end
+local target,prompt
+if kind'key' then local model=map:FindFirstChild('HiddenKey'..index); target=model and model:FindFirstChild('Key')
+elseif kind=='note' then target=map:FindFirstChild('CodeNote')
+elseif kind=='keypad' then local keypad=map:FindFirstChild('Keypad'); target=keypad and keypad:FindFirstChild('Digit1')
+elseif kind=='closet' then target=nearest('Closets',true) end
+if not target or not target:IsA('BasePart') then notify(tr('Target unavailable','Цель недоступна','대상을 찾을 수 없습니다')); return end
+local entry=state.Entries[target]; prompt=entry and entry.Prompt
+local pos=target:GetAttribute('ExitPoint')
+if typeof(pos)~='Vector3' then pos=target.Position+Vector3.new(0,2,3) end
+busy=true; state.TeleportUntil=os.clock()+1
+for _,part in parts do if part.Parent then force('collision',part,'CanCollide',false) end end
+local oldKeys=player:GetAttribute('Keys')
+root.CFrame=CFrame.lookAt(pos,Vector3.new(target.Position.X,pos.Y,target.Position.Z))
+root.AssemblyLinearVelocity=Vector3.zero
+task.spawn(function()
+local ok,err=pcall(function()
+task.wait(.25)
+if not state.Running or player.Character~=currentCharacter or not target.Parent then return end
+if kind=='key' then
+local drawerName=target:GetAttribute('RidesDrawer'); local drawer=drawerName and map:FindFirstChild(drawerName)
+if drawer and drawer:GetAttribute('Open')~=true then interact(drawer:FindFirstChild('DrawerPrompt',true)) end
+for _=1,5 do
+task.wait(.2); if not state.Running or not target.Parent then break end
+interact(prompt or target:FindFirstChild('KeyPrompt',true))
+end
+if not state.Running then return end
+local now=player:GetAttribute('Keys')
+local confirmed=not target:IsDescendantOf(workspace) or (type(now)'number' and type(oldKeys)'number' and now>oldKeys)
+notify(confirmed and tr('Key pickup confirmed','Ключ получен','열쇠 획득 확인') or tr('Pickup attempted; not confirmed','Попытка подбора: без подтверждения','획득 시도 완료 · 서버 성공 미확인'))
+elseif kind=='closet' then
+interact(prompt); task.wait(.4)
+if state.Running then notify(player:GetAttribute('HidingIn')~=nil and tr('Hiding confirmed','Вы в укрытии','숨기 확인') or tr('Moved to closet; hiding unconfirmed','Перемещение выполнено; укрытие не подтверждено','옷장 이동 완료 · 숨기 미확인')) end
+else notify(tr('Teleport requested','Перемещение запрошено','텔레포트 요청 완료')) end
+end)
+busy=false
+if not ok and state.Running then notify(tostring(err)) end
+end)
+end
+local function updateCharacter()
+local c=player.Character
+if ccurrentCharacter then return end
+stopFlight(); restore('speed'); restore('collision'); currentCharacter=c; parts={}
+if c then for _,p in c:QueryDescendants('BasePart') do table.insert(parts,p) end end
+end
+connect(player.CharacterAdded,function() updateCharacter() end)
+connect(workspace.DescendantAdded,function(v)
+if currentCharacter and v:IsA('BasePart') and v:IsDescendantOf(currentCharacter) then table.insert(parts,v) end
+end)
+local function physics(dt)
+updateCharacter()
+local c,root,h=body()
+if not root or not h or h.Health<=0 then stopFlight(); restore('collision'); restore('speed'); return end
+local hidden=player:GetAttribute('HidingIn')~=nil or player:GetAttribute('Downed')true
+if state.Speed and not hidden then force('speed',h,'WalkSpeed',state.WalkSpeed) else restore('speed') end
+if (state.Noclip or state.Fly or os.clock()<state.TeleportUntil) and not hidden then
+for _,p in parts do if p.Parent then force('collision',p,'CanCollide',false) end end
+else restore('collision') end
+if state.Fly and not hidden then
+if not flight or flight.Root~=root then
+stopFlight()
+local a=make('Attachment',{Name='PelicanFlight'},root)
+local v=make('LinearVelocity',{Attachment0=a,RelativeTo=Enum.ActuatorRelativeTo.World,
+MaxForce=math.huge,VectorVelocity=Vector3.zero},root)
+local o=make('AlignOrientation',{Attachment0=a,Mode=Enum.OrientationAlignmentMode.OneAttachment,
+MaxTorque=math.huge,Responsiveness=20},root)
+flight={Root=root,Attachment=a,Velocity=v,Orientation=o,Move=Vector3.zero}
+end
+force('flight',h,'AutoRotate',false)
+local camera=workspace.CurrentCamera; local move=Vector3.zero
+if camera and not UIS:GetFocusedTextBox() then
+local cf=camera.CFrame
+if UIS:IsKeyDown(Enum.KeyCode.W) then move+=cf.LookVector end
+if UIS:IsKeyDown(Enum.KeyCode.S) then move-=cf.LookVector end
+if UIS:IsKeyDown(Enum.KeyCode.D) then move+=cf.RightVector end
+if UIS:IsKeyDown(Enum.KeyCode.A) then move-=cf.RightVector end
+if UIS:IsKeyDown(Enum.KeyCode.Space) then move+=Vector3.yAxis end
+if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then move-=Vector3.yAxis end
+local look=Vector3.new(cf.LookVector.X,0,cf.LookVector.Z)
+if look.Magnitude>.01 then flight.Orientation.CFrame=CFrame.lookAt(Vector3.zero,look) end
+end
+if move.Magnitude>1 then move=move.Unit end
+flight.Move=flight.Move:Lerp(movestate.FlySpeed,1-math.exp(-12dt))
+flight.Velocity.VectorVelocity=flight.Move
+else stopFlight() end
+if state.Repel and not hidden and os.clock()>=state.TeleportUntil then
+local target,d=nearest('Monsters')
+if target and dstate.MetresPerStud<state.RepelRadius then
+local delta=root.Position-state.Entries[target].Anchor.Position
+delta=Vector3.new(delta.X,0,delta.Z)
+if delta.Magnitude>.01 then
+local velocity=delta.Unitstate.RepelSpeed+Vector3.new(0,math.max(root.AssemblyLinearVelocity.Y,8),0)
+if flight then flight.Velocity.VectorVelocity=velocity else root.AssemblyLinearVelocity=velocity end
+end
+end
+end
+end
+local function visuals()
+if state.Fullbright then
+force('light',Lighting,'Brightness',3); force('light',Lighting,'Ambient',Color3.new(1,1,1))
+force('light',Lighting,'OutdoorAmbient',Color3.new(1,1,1)); force('light',Lighting,'GlobalShadows',false)
+force('light',Lighting,'ClockTime',14); force('light',Lighting,'ExposureCompensation',0)
+for _,v in Lighting:QueryDescendants('ColorCorrectionEffect') do force('light',v,'Enabled',false) end
+else restore('light') end
+if state.NoFog then
+force('fog',Lighting,'FogStart',1e6); force('fog',Lighting,'FogEnd',1e7)
+for _,v in Lighting:QueryDescendants('Atmosphere') do force('fog',v,'Density',0); force('fog',v,'Haze',0) end
+else restore('fog') end
+if state.NoStatic then
+for _,v in player.PlayerGui:QueryDescendants('ScreenGui#PixelStatic') do force('static',v,'Enabled',false) end
+else restore('static') end
+local camera=workspace.CurrentCamera
+if state.CustomFOV and camera then force('fov',camera,'FieldOfView',state.FOV) else restore('fov') end
+if state.Instant then for _,p in state.Prompts do if p.Parent then force('prompt',p,'HoldDuration',0) end end else restore('prompt') end
+if state.AutoInteract and not busy then
+for _,p in state.Prompts do
+local name=p.Name; local t=p:FindFirstAncestorWhichIsA('BasePart')
+if name'KeyPrompt' or name'PickupPrompt' or name=='CrowbarPrompt'
+or ((name=='DrawerPrompt' or name=='BoxPrompt') and t and t:GetAttribute('Open')~=true) then
+if interact(p) then break end
+end
+end
+end
+end
+local function render()
+local _,root,h=body(); local camera=workspace.CurrentCamera
+-- The game's camera script rewrites speed and FOV during its render step.
+if state.Speed and h and h.Health>0 and player:GetAttribute('HidingIn')nil and player:GetAttribute('Downed')~=true then
+force('speed',h,'WalkSpeed',state.WalkSpeed)
+end
+if state.CustomFOV and camera then force('fov',camera,'FieldOfView',state.FOV) end
+radar.Visible=state.Radar; codeHUD.Visible=state.Puzzles
+if not camera then return end
+for target,e in state.Entries do
+local distance=root and (root.Position-e.Anchor.Position).Magnitudestate.MetresPerStud
+local visible=state[e.Kind] and target:IsDescendantOf(workspace) and (not distance or distance<=state.MaxDistance)
+e.Highlight.Enabled=visible; e.Billboard.Enabled=visible
+if visible then
+local suffix=e.Prompt and not e.Prompt.Enabled and tr(' [inactive]',' [неактивно]',' [비활성]') or ''
+e.Label.Text=e.Name..suffix..(state.Distance and distance and string.format('\n%.1f m',distance) or '')
+end
+if e.Line or e.LineFrame then
+local projected,onScreen=camera:WorldToViewportPoint(e.Anchor.Position)
+local show=state.Tracers and visible and onScreen and projected.Z>0
+local from=Vector2.new(camera.ViewportSize.X/2,camera.ViewportSize.Y-12)
+local to=Vector2.new(projected.X,projected.Y)
+if e.Line then e.Line.Visible=show; if show then e.Line.From=from; e.Line.To=to end end
+if e.LineFrame then e.LineFrame.Visible=show; if show then
+local d=to-from; e.LineFrame.Size=UDim2.fromOffset(d.Magnitude,1.5)
+e.LineFrame.Position=UDim2.fromOffset((from.X+to.X)/2,(from.Y+to.Y)/2)
+e.LineFrame.Rotation=math.deg(math.atan2(d.Y,d.X))
+end end
+end
+end
+local target,d=nearest('Monsters'); dot.Visible=target~=nil and root~=nil
+if target and root then
+local meters=dstate.MetresPerStud
+local color=meters<15 and colors.Monsters or meters<=35 and colors.Keys or colors.Puzzles
+local threat=meters<15 and tr('DANGER','ОПАСНО','위험') or meters<=35 and tr('WARNING','ВНИМАНИЕ','경고') or tr('SAFE','БЕЗОПАСНО','안전')
+radarText.Text=string.format('%s\nVER %.1f m',threat,meters); radarText.TextColor3=color; dot.BackgroundColor3=color
+local forward=Vector3.new(camera.CFrame.LookVector.X,0,camera.CFrame.LookVector.Z)
+if forward.Magnitude>.01 then
+forward=forward.Unit; local right=forward:Cross(Vector3.yAxis)
+local delta=state.Entries[target].Anchor.Position-root.Position
+local v=Vector2.new(delta:Dot(right),-delta:Dot(forward))state.MetresPerStud/5065
+if v.Magnitude>65 then v=v.Unit*65 end
+dot.Position=UDim2.fromOffset(80+v.X,80+v.Y)
+end
+else radarText.Text=tr('VER not found','VER не найден','VER 없음') end
+end
+local baseURL='https://raw.githubusercontent.com/deividcomsono/Obsidian/main/'
+local function loadRemote(path)
+local source=game:HttpGet(baseURL..path)
+assert(state.Running,'Initialization cancelled')
+local chunk,err=loadstring(source); assert(chunk,err); return chunk()
+end
+local function buildUI(selected)
+if state.Started or not state.Running then return end
+state.Started=true; language=selected; env.PelicanMonochromeLanguage=selected
+local ok,err=pcall(function()
+Library=loadRemote('Library.lua')
+if not state.Running then Library:Unload(); return end
+state.Library=Library
+Library:OnUnload(function() state.Stop(true) end)
+local window=Library:CreateWindow({Title='PELICAN | MONOCHROME',Footer='F8: unload | RightShift: menu',
+Center=true,AutoShow=true,Resizable=true,ToggleKeybind=Enum.KeyCode.RightShift,ShowCustomCursor=false})
+local movement=window:AddTab(tr('Movement','Движение','이동'),'person-standing')
+local esp=window:AddTab(tr('ESP & Radar','ESP и радар','ESP · 레이더'),'radar')
+local view=window:AddTab(tr('Visuals','Изображение','화면'),'sun')
+local travel=window:AddTab(tr('Teleports & Puzzle','Телепорты и код','텔레포트 · 퍼즐'),'map-pin')
+local automation=window:AddTab(tr('Interactions','Взаимодействия','상호작용'),'hand')
+local settings=window:AddTab(tr('Settings','Настройки','설정'),'settings')
+local function toggle(box,key,en,ru,ko)
+box:AddToggle(key,{Text=tr(en,ru,ko),Default=state[key],Callback=function(v) state[key]=v end})
+end
+local function slider(box,key,en,ru,ko,min,max)
+box:AddSlider(key,{Text=tr(en,ru,ko),Default=state[key],Min=min,Max=max,Rounding=0,Callback=function(v) state[key]=v end})
+end
+local move=movement:AddLeftGroupbox(tr('Movement','Движение','이동'))
+toggle(move,'Speed','Custom speed','Скорость','이동 속도 변경'); slider(move,'WalkSpeed','Walk speed (stud/s)','Скорость (stud/s)','이동 속도 (stud/s)',16,120)
+toggle(move,'Noclip','Noclip','Сквозь стены','충돌 해제')
+toggle(move,'Fly','Fly','Полёт','비행'); slider(move,'FlySpeed','Fly speed (stud/s)','Скорость полёта','비행 속도 (stud/s)',10,120)
+move:AddLabel('W/A/S/D · Space ↑ · LeftShift ↓',true)
+local defense=movement:AddRightGroupbox(tr('Anti-VER repel','Отталкивание от VER','VER 회피'))
+toggle(defense,'Repel','Push away from VER','Отлетать от VER','VER 근접 시 밀려나기')
+slider(defense,'RepelRadius','Trigger radius (m)','Радиус (м)','작동 반경 (m)',2,20)
+slider(defense,'RepelSpeed','Repel speed','Скорость отталкивания','회피 속도',20,120)
+defense:AddLabel(tr('Moves your character. Does not grant invulnerability.','Перемещает персонажа. Не даёт неуязвимость.','캐릭터를 밀어냅니다. 무적 효과는 없습니다.'),true)
+local objects=esp:AddLeftGroupbox('ESP')
+toggle(objects,'Monsters','VER [F6]','VER [F6]','몬스터 [F6]')
+toggle(objects,'Keys','Keys [F9]','Ключи [F9]','열쇠 [F9]')
+toggle(objects,'Closets','Closets [F7]','Шкафы [F7]','옷장 [F7]')
+toggle(objects,'Objects','Interactions [F10]','Объекты [F10]','상호작용 [F10]')
+toggle(objects,'Puzzles','Code & clues [F5]','Код и подсказки [F5]','암호 · 단서 [F5]')
+toggle(objects,'Distance','Distance labels','Расстояние','거리 표시')
+slider(objects,'MaxDistance','Max ESP distance (m)','Дальность ESP (м)','ESP 표시 거리 (m)',20,1000)
+local tracking=esp:AddRightGroupbox(tr('Tracking','Отслеживание','추적'))
+toggle(tracking,'Radar','Circular radar','Круговой радар','원형 레이더')
+toggle(tracking,'Tracers','Objective tracers','Линии к целям','목표 연결선')
+tracking:AddLabel('1 stud = 0.28 m\n0–15 m: danger · 15–35 m: warning',true)
+labels.Status=tracking:AddLabel('Scanning…',true)
+local effects=view:AddLeftGroupbox(tr('Lighting','Освещение','조명'))
+toggle(effects,'Fullbright','Fullbright','Яркое освещение','밝게 보기')
+toggle(effects,'NoFog','No fog','Без тумана','안개 제거')
+toggle(effects,'NoStatic','No pixel static','Без зернистости','화면 노이즈 제거')
+local camera=view:AddRightGroupbox(tr('Camera','Камера','카메라'))
+toggle(camera,'CustomFOV','Custom FOV','Свой FOV','FOV 변경'); slider(camera,'FOV','FOV','FOV','시야각',60,120)
+local locations=travel:AddLeftGroupbox(tr('Teleports','Телепорты','텔레포트'))
+for i=1,4 do local index=i
+locations:AddButton({Text=tr('Key','Ключ','열쇠')..' '..i..' + '..tr('pickup','подбор','획득'),Func=function() teleport('key',index) end})
+end
+locations:AddButton({Text=tr('Code note','Записка с кодом','암호 메모'),Func=function() teleport('note') end})
+locations:AddButton({Text=tr('Keypad','Кодовая панель','키패드'),Func=function() teleport('keypad') end})
+locations:AddButton({Text=tr('Nearest free closet + hide','Ближайший свободный шкаф','가까운 빈 옷장 · 숨기'),Func=function() teleport('closet') end})
+local puzzle=travel:AddRightGroupbox(tr('Puzzle information','Информация о коде','퍼즐 정보'))
+labels.Puzzle=puzzle:AddLabel('…',true)
+puzzle:AddButton({Text=tr('Copy code','Копировать код','암호 복사'),Func=function()
+if state.Code and type(setclipboard)'function' then setclipboard(state.Code); notify(tr('Copied','Скопировано','복사 완료')) end
+end})
+local interactions=automation:AddLeftGroupbox(tr('Interactions','Взаимодействия','상호작용'))
+toggle(interactions,'Instant','Instant interact','Мгновенное действие','즉시 상호작용')
+toggle(interactions,'AutoInteract','Nearby drawers / items','Ближайшие ящики / предметы','근처 서랍 · 아이템 자동 상호작용')
+interactions:AddLabel(tr('Uses normal prompt range. Does not auto-enter closets or change keypad digits.','В пределах обычной дальности. Не меняет код и не прячется автоматически.','프롬프트 거리 안에서 작동합니다. 옷장 진입과 키패드 입력은 자동화하지 않습니다.'),true)
+if type(fireproximityprompt)~='function' then interactions:AddLabel('fireproximityprompt unavailable',true) end
+local system=settings:AddLeftGroupbox(tr('System','Система','시스템'))
+system:AddLabel(tr('Language is selected on each launch.','Язык выбирается при запуске.','실행 시 언어를 선택합니다.'),true)
+system:AddLabel(tr('No key required.','Ключ доступа не требуется.','인증 키 없이 사용합니다.'),true)
+system:AddButton({Text=tr('Unload & restore [F8]','Выгрузить и восстановить [F8]','종료 · 복원 [F8]'),Func=state.Stop})
+local themeOK,theme=pcall(loadRemote,'addons/ThemeManager.lua')
+if themeOK then ThemeManager=theme; theme:SetLibrary(Library); theme:SetFolder('PelicanMonochrome'); theme:ApplyToTab(settings) end
+if type(writefile)'function' and type(readfile)'function' and type(listfiles)'function' and type(makefolder)'function' then
+local saveOK,save=pcall(loadRemote,'addons/SaveManager.lua')
+if saveOK then
+SaveManager=save; save:SetLibrary(Library); save:IgnoreThemeSettings(); save:SetFolder('PelicanMonochrome')
+save:BuildConfigSection(settings); state.SaveManager=save
+save:LoadAutoloadConfig()
+system:AddButton({Text=tr('Load autoload preset','Загрузить автопрофиль','자동 로드 프리셋 불러오기'),Func=function() save:LoadAutoloadConfig() end})
+else system:AddLabel('SaveManager: '..tostring(save),true) end
+else system:AddLabel(tr('Preset files unavailable in this executor.','Файлы профилей недоступны.','이 실행기는 프리셋 파일 저장을 지원하지 않습니다.'),true) end
+if not state.Running then if not Library.Unloaded then Library:Unload() end; return end
+scan(); updateCharacter()
+connect(RunService.PreSimulation,physics)
+RunService:BindToRenderStep('PelicanMonochromeRender',Enum.RenderPriority.Last.Value+20,function()
+if not state.Running then return end
+local success,message=pcall(render)
+if not success then env.PelicanMonochromeLastError=tostring(message); state.Stop() end
+end)
+connect(UIS.InputBegan,function(input,processed)
+if processed or UIS:GetFocusedTextBox() then return end
+if input.KeyCodeEnum.KeyCode.F8 then state.Stop(); return end
+local binds={[Enum.KeyCode.F5]='Puzzles',[Enum.KeyCode.F6]='Monsters',[Enum.KeyCode.F7]='Closets',[Enum.KeyCode.F9]='Keys',[Enum.KeyCode.F10]='Objects'}
+local key=binds[input.KeyCode]; if key then Library.Toggles[key]:SetValue(not state[key]) end
+end)
+task.spawn(function()
+while state.Running do
+local success,message=pcall(function() scan(); visuals() end)
+if not success then env.PelicanMonochromeLastError=tostring(message); warn('[PelicanMonochrome] '..tostring(message)); state.Stop(); return end
+task.wait(.25)
+end
+end)
+state.Ready=true
+end)
+if not ok then env.PelicanMonochromeLastError=tostring(err); warn('[PelicanMonochrome] '..tostring(err)); state.Error=tostring(err); state.Stop() end
+end
+local picker=make('Frame',{Size=UDim2.fromOffset(300,190),Position=UDim2.new(.5,-150,.5,-95),BackgroundColor3=Color3.fromRGB(22,25,32)},gui)
+make('UICorner',{CornerRadius=UDim.new(0,10)},picker)
+label(picker,'Language / Язык / 언어',UDim2.fromOffset(280,34),UDim2.fromOffset(10,5))
+for index,value in {'English','Русский','한국어'} do
+local button=make('TextButton',{Size=UDim2.fromOffset(260,36),Position=UDim2.fromOffset(20,40+(index-1)*45),
+Text=value,TextSize=17,TextColor3=Color3.new(1,1,1),BackgroundColor3=Color3.fromRGB(45,50,65)},picker)
+connect(button.Activated,function() picker:Destroy(); buildUI(value) end)
+end
+state.SelectLanguage=function(value)
+assert(value'English' or value=='Русский' or value=='한국어','Unknown language')
+if not state.Started then picker:Destroy(); buildUI(value) end
+end
+state.Teleport=teleport
+
+end
+local function runChapter2()
+-- MONOCHROME client suite. F5 puzzles, F6 VER, F7 closets, F8 unload,
+-- F9 keys, F10 objects, RightShift menu. Movement/automation start disabled.
+assert(game.PlaceId == 117314306495532, 'MONOCHROME Chapter 2 only')
+local env = getgenv()
+if env.PelicanMonochromeESP then env.PelicanMonochromeESP.Stop() end
+local Players, UIS = game:GetService('Players'), game:GetService('UserInputService')
+local RunService, Lighting = game:GetService('RunService'), game:GetService('Lighting')
+local player = Players.LocalPlayer
+local state = {Running=true, Entries={}, Counts={}, Prompts={}, Monsters=true, Closets=true,
+Keys=true, Objects=false, Puzzles=true, Radar=true, Tracers=false, Distance=true,
+Speed=false, WalkSpeed=24, Noclip=false, Fly=false, FlySpeed=40, Repel=false,
+RepelRadius=10, RepelSpeed=60, Fullbright=false, NoFog=false, NoStatic=false,
+CustomFOV=false, FOV=80, Instant=false, AutoInteract=false, MaxDistance=300,
+MetresPerStud=0.28, LastAction='', Code=nil, TeleportUntil=0}
+env.PelicanMonochromeESP = state
+local connections, drawings, propertyGroups = {}, {}, {}
+local Library, SaveManager, ThemeManager
+local gui = Instance.new('ScreenGui')
+gui.Name='PelicanMonochromeESP'; gui.ResetOnSpawn=false; gui.IgnoreGuiInset=true
+gui.Parent=player:WaitForChild('PlayerGui')
+local highlights=Instance.new('Folder'); highlights.Name='PelicanMonochromeHighlights'; highlights.Parent=workspace
+local flight, currentCharacter, parts = nil, nil, {}
+local language, labels = '한국어', {}
+local function tr(en, ru, ko) return language=='Русский' and ru or language=='한국어' and ko or en end
+local function notify(message)
+state.LastAction=message
+if Library and not Library.Unloaded then Library:Notify(message, 5) end
+end
+-- Store properties only when a feature first changes them; restore on toggle-off/unload.
+local function force(group, object, property, value)
+local bucket=propertyGroups[group]
+if not bucket then bucket={}; propertyGroups[group]=bucket end
+local saved=bucket[object]
+if not saved then saved={}; bucket[object]=saved end
+if saved[property]nil then saved[property]={value=object[property]} end
+if object[property]~=value then object[property]=value end
+end
+local function restore(group)
+local bucket=propertyGroups[group]
+if not bucket then return end
+for object, props in bucket do
+for property, saved in props do pcall(function() object[property]=saved.value end) end
+end
+propertyGroups[group]=nil
+end
+local function stopFlight()
+if flight then
+flight.Velocity:Destroy(); flight.Orientation:Destroy(); flight.Attachment:Destroy()
+flight=nil
+end
+restore('flight')
+end
+function state.Stop(fromLibrary)
+if not state.Running then return end
+state.Running=false
+RunService:UnbindFromRenderStep('PelicanMonochromeRender')
+for _,c in connections do c:Disconnect() end
+stopFlight()
+local groups={}; for name in propertyGroups do table.insert(groups,name) end
+for _,name in groups do restore(name) end
+for _,d in drawings do pcall(function() d:Remove() end) end
+highlights:Destroy(); gui:Destroy(); table.clear(state.Entries)
+if env.PelicanMonochromeESPstate then env.PelicanMonochromeESP=nil end
+if Library and not fromLibrary and not Library.Unloaded then Library:Unload() end
+end
+local function connect(signal, callback)
+local c=signal:Connect(function(...)
+if not state.Running then return end
+local ok,err=pcall(callback,...)
+if not ok then env.PelicanMonochromeLastError=tostring(err); warn('[PelicanMonochrome] '..tostring(err)); state.Stop() end
+end)
+table.insert(connections,c); return c
+end
+local function body()
+local c=player.Character
+return c, c and c:FindFirstChild('HumanoidRootPart'), c and c:FindFirstChildOfClass('Humanoid')
+end
+local function make(class, props, parent)
+local object=Instance.new(class)
+for k,v in props do object[k]=v end
+object.Parent=parent; return object
+end
+local function round(object) make('UICorner',{CornerRadius=UDim.new(1,0)},object) end
+local function label(parent,text,size,position)
+return make('TextLabel',{Text=text,Size=size,Position=position,BackgroundTransparency=1,
+TextColor3=Color3.new(1,1,1),TextStrokeTransparency=0.25,TextSize=14,Font=Enum.Font.GothamMedium},parent)
+end
+local colors={Monsters=Color3.fromRGB(255,70,85),Closets=Color3.fromRGB(75,255,155),
+Keys=Color3.fromRGB(255,220,60),Objects=Color3.fromRGB(90,190,255),Puzzles=Color3.fromRGB(210,130,255)}
+local names={
+ClosetPrompt={'Locker door','Дверца шкафа','사물함 문'},
+IndustrialPanelPrompt={'Control panel','Пульт управления','제어판'},
+ElevatorPanelPrompt={'Elevator panel','Панель лифта','엘리베이터 패널'},
+ElevatorDoorsPrompt={'Elevator doors','Двери лифта','엘리베이터 문'},
+DrawerPrompt={'Drawer','Ящик','서랍'}, LockPrompt={'Lock','Замок','자물쇠'},
+PryPrompt={'Plank','Доска','판자'}, ElevatorPrompt={'Elevator','Лифт','엘리베이터'},
+DigitPrompt={'Keypad','Кодовая панель','키패드'}, PickupPrompt={'Item','Предмет','아이템'},
+CrowbarPrompt={'Crowbar','Лом','쇠지렛대'}, BoxPrompt={'Box','Коробка','상자'},
+}
+local radar=make('Frame',{Size=UDim2.fromOffset(160,160),Position=UDim2.new(1,-185,0,55),
+BackgroundColor3=Color3.fromRGB(20,22,30),BackgroundTransparency=0.15},gui); round(radar)
+make('UIStroke',{Thickness=2,Color=colors.Puzzles},radar)
+local centre=make('Frame',{Size=UDim2.fromOffset(6,6),AnchorPoint=Vector2.new(.5,.5),
+Position=UDim2.fromScale(.5,.5),BackgroundColor3=Color3.new(1,1,1)},radar); round(centre)
+local dot=make('Frame',{Size=UDim2.fromOffset(10,10),AnchorPoint=Vector2.new(.5,.5),
+BackgroundColor3=colors.Monsters,Visible=false},radar); round(dot)
+label(radar,'▲',UDim2.fromOffset(30,20),UDim2.fromOffset(65,4))
+local radarText=label(radar,'VER —',UDim2.fromOffset(200,42),UDim2.fromOffset(-20,164))
+local codeHUD=label(gui,'',UDim2.fromOffset(330,58),UDim2.new(.5,-165,0,12))
+local function register(target,anchor,kind,name,seen,prompt)
+if not anchor or not anchor:IsA('BasePart') then return end
+seen[target]=true
+local entry=state.Entries[target]
+if not entry then
+local highlight=make('Highlight',{Adornee=(target:IsA('Model') or target:IsA('BasePart')) and target or anchor,
+DepthMode=Enum.HighlightDepthMode.AlwaysOnTop,FillTransparency=.75,OutlineTransparency=0,
+FillColor=colors[kind],OutlineColor=colors[kind]},highlights)
+local billboard=make('BillboardGui',{Adornee=anchor,AlwaysOnTop=true,Size=UDim2.fromOffset(230,62),
+StudsOffsetWorldSpace=Vector3.new(0,3,0)},gui)
+local text=label(billboard,'',UDim2.fromScale(1,1),UDim2.fromScale(0,0)); text.TextColor3=colors[kind]
+entry={Highlight=highlight,Billboard=billboard,Label=text,Kind=kind}
+if kind=='Monsters' or kind=='Keys' or kind=='Puzzles' then
+if Drawing and type(Drawing.new)'function' then
+local ok,line=pcall(Drawing.new,'Line')
+if ok then line.Thickness=1.5; line.Color=colors[kind]; line.Transparency=1
+entry.Line=line; table.insert(drawings,line) end
+end
+if not entry.Line then
+entry.LineFrame=make('Frame',{AnchorPoint=Vector2.new(.5,.5),BorderSizePixel=0,
+BackgroundColor3=colors[kind],Visible=false},gui)
+end
+end
+state.Entries[target]=entry
+end
+entry.Anchor=anchor; entry.Name=name; entry.Prompt=prompt; entry.Billboard.Adornee=anchor
+end
+local lastPrompt=setmetatable({},{__mode='k'})
+local function promptPosition(p)
+local parent=p.Parent
+if parent and parent:IsA('Attachment') then return parent.WorldPosition end
+if parent and parent:IsA('BasePart') then return parent.Position end
+if parent and parent:IsA('Model') then return parent:GetPivot().Position end
+end
+local function interact(p)
+local _,root=body()
+if not state.Running or not root or not p or not p.Parent or not p.Enabled then return false end
+local pos=promptPosition(p)
+if not pos or (root.Position-pos).Magnitude>p.MaxActivationDistance then return false end
+if os.clock()-(lastPrompt[p] or -math.huge)<1.5 then return false end
+if type(fireproximityprompt)~='function' then return false end
+lastPrompt[p]=os.clock()
+local ok=pcall(fireproximityprompt,p)
+return ok -- Request sent; server success is checked separately for teleports.
+end
+local function occupied(closet)
+local id=closet:GetAttribute('ClosetId')
+for _,p in Players:GetPlayers() do
+local hiding=p:GetAttribute('HidingIn')
+if hiding~=nil and (hidingcloset or tostring(hiding)tostring(id) or hidingcloset.Name) then return true end
+end
+return false
+end
+local function nearest(kind, requireFree)
+local _,root=body(); if not root then return end
+local target,best=nil,math.huge
+for object,e in state.Entries do
+if e.Kindkind and e.Anchor:IsDescendantOf(workspace)
+and (not requireFree or (e.Prompt and e.Prompt.Enabled and not occupied(object))) then
+local d=(root.Position-e.Anchor.Position).Magnitude
+if d<best then target,best=object,d end
+end
+end
+return target,best
+end
+local function scan()
+local seen={}; local map=workspace:FindFirstChild('monochrome')
+local monster=workspace:FindFirstChild('VER')
+if monster then register(monster,monster:FindFirstChild('RootPart') or monster.PrimaryPart,'Monsters','VER',seen) end
+for _,p in Players:GetPlayers() do
+if p~=player and p:GetAttribute('IsMonster')true and p.Character then
+register(p.Character,p.Character:FindFirstChild('HumanoidRootPart'),'Monsters',p.DisplayName,seen)
+end
+end
+state.Prompts={}; state.Code=nil; state.InputCode='????'; state.Objectives={}
+local remaining,locks=0,0
+if map then
+local keypad=map:FindFirstChild('Keypad'); local input={}
+if keypad then
+for i=1,4 do
+local d=keypad:FindFirstChild('Digit'..i); local readout=d and d:FindFirstChild('Readout')
+local text=readout and readout:FindFirstChild('Digit'); input[i]=text and text.Text or '?'
+end
+state.InputCode=table.concat(input)
+end
+local note=map:FindFirstChild('CodeNote'); local printed=note and note:FindFirstChild('Printed')
+local digits=printed and printed:FindFirstChild('Digits')
+if digits and digits:IsA('TextLabel') then
+local code=digits.Text:gsub('%s','')
+if code:match('^%d%d%d%d`$') then state.Code=code end
+end
+if note then register(note,note:IsA('BasePart') and note or note:FindFirstChildWhichIsA('BasePart',true),
+'Puzzles',tr('Code note','Записка с кодом','암호 메모')..': '..(state.Code or '????'),seen) end
+for _,p in map:QueryDescendants('ProximityPrompt') do
+table.insert(state.Prompts,p)
+local t=p:FindFirstAncestorWhichIsA('BasePart')
+if not t then continue end
+local kind,name
+if p.Name'HidePrompt' then kind='Closets'; name=tr('Closet','Шкаф','옷장')..' '..tostring(t:GetAttribute('ClosetId') or '')
+if occupied(t) then name..=tr(' [occupied]',' [занят]',' [사용 중]') end
+elseif p.Name'ItemPrompt' then
+local holder=t.Parent
+local id=holder:GetAttribute('ItemId') or t:GetAttribute('ItemId')
+local itemKind=holder:GetAttribute('ItemKind') or p.ObjectText
+local translations={Key={'Key','Ключ','열쇠'},Pole={'Bar','Лом','쇠막대'},Screwdriver={'Screwdriver','Отвёртка','드라이버'}}
+kind='Keys'; name=translations[itemKind] and tr(table.unpack(translations[itemKind])) or p.ObjectText
+if id then name..=' ('..tostring(id)..')'; state.Objectives[id]=t end
+elseif p.Name=='KeyPrompt' then kind='Keys'; name=tr('Key','Ключ','열쇠')..' '..(t.Parent.Name:match('HiddenKey(%d+)') or '')
+elseif names[p.Name] then kind='Objects'; name=tr(table.unpack(names[p.Name]))
+if p.Name=='IndustrialPanelPrompt' or p.Name=='ElevatorPanelPrompt' or p.Name=='ElevatorDoorsPrompt' then
+kind='Puzzles'; state.Objectives[p.Name]=t
+end
+if p.Name=='DigitPrompt' then kind='Puzzles'; t=t:FindFirstAncestor('Keypad') or t; name..=' '..state.InputCode end
+if p.Name=='PryPrompt' then if t:GetAttribute('Pried')~=true then remaining+=1 else name..=' ✓' end end
+if p.Name=='LockPrompt' and t:GetAttribute('Unlocked')==true then name..=' ✓' end
+
+... (28KB 남음)
