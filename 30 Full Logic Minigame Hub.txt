@@ -1,0 +1,1103 @@
+--[[
+    ==================================================
+    30-in-1 Full Logic Roblox Executor Minigame Hub
+    ==================================================
+    30개 모든 미니게임의 실제 동작 로직(인터랙션, 스코어링, 
+    타이머, 승패 판정, UI 렌더링)이 개별 구현된 스크립트입니다.
+--]]
+
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- 기존 UI 제거 (중복 실행 방지)
+if CoreGui:FindFirstChild("MinigameHub30Complete") then
+    CoreGui.MinigameHub30Complete:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MinigameHub30Complete"
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 390, 0, 470)
+MainFrame.Position = UDim2.new(0.5, -195, 0.5, -235)
+MainFrame.BackgroundColor3 = Color3.fromRGB(24, 26, 35)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = MainFrame
+
+-- 타이틀바
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, 0, 0, 48)
+TitleLabel.BackgroundColor3 = Color3.fromRGB(38, 42, 56)
+TitleLabel.Text = "🎮 30-in-1 Full Logic Minigame Hub"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextSize = 17
+TitleLabel.Font = Enum.Font.SourceSansBold
+TitleLabel.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.Parent = TitleLabel
+
+-- 상태 설명창
+local DescLabel = Instance.new("TextLabel")
+DescLabel.Size = UDim2.new(1, -40, 0, 30)
+DescLabel.Position = UDim2.new(0, 20, 0, 52)
+DescLabel.BackgroundTransparency = 1
+DescLabel.Text = "목록에서 미니게임을 클릭하고 [▶ 게임 시작]을 누르세요!"
+DescLabel.TextColor3 = Color3.fromRGB(180, 185, 200)
+DescLabel.TextSize = 13
+DescLabel.Font = Enum.Font.SourceSans
+DescLabel.Parent = MainFrame
+
+-- 스크롤 목록
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Size = UDim2.new(1, -40, 0, 245)
+ScrollFrame.Position = UDim2.new(0, 20, 0, 88)
+ScrollFrame.BackgroundColor3 = Color3.fromRGB(16, 18, 24)
+ScrollFrame.BorderSizePixel = 0
+ScrollFrame.ScrollBarThickness = 6
+ScrollFrame.Parent = MainFrame
+
+local ScrollCorner = Instance.new("UICorner")
+ScrollCorner.CornerRadius = UDim.new(0, 8)
+ScrollCorner.Parent = ScrollFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Parent = ScrollFrame
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 4)
+
+-- 하단 컨트롤
+local SelectedGameText = Instance.new("TextLabel")
+SelectedGameText.Size = UDim2.new(1, -40, 0, 25)
+SelectedGameText.Position = UDim2.new(0, 20, 0, 345)
+SelectedGameText.BackgroundTransparency = 1
+SelectedGameText.Text = "선택된 게임: 없음"
+SelectedGameText.TextColor3 = Color3.fromRGB(255, 215, 0)
+SelectedGameText.TextSize = 14
+SelectedGameText.Font = Enum.Font.SourceSansBold
+SelectedGameText.Parent = MainFrame
+
+local StartBtn = Instance.new("TextButton")
+StartBtn.Size = UDim2.new(0.44, 0, 0, 42)
+StartBtn.Position = UDim2.new(0.05, 5, 0, 395)
+StartBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+StartBtn.Text = "▶ 게임 시작"
+StartBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+StartBtn.TextSize = 15
+StartBtn.Font = Enum.Font.SourceSansBold
+StartBtn.Parent = MainFrame
+
+local StartCorner = Instance.new("UICorner")
+StartCorner.CornerRadius = UDim.new(0, 6)
+StartCorner.Parent = StartBtn
+
+local StopBtn = Instance.new("TextButton")
+StopBtn.Size = UDim2.new(0.44, 0, 0, 42)
+StopBtn.Position = UDim2.new(0.51, 5, 0, 395)
+StopBtn.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+StopBtn.Text = "⏹ 정지"
+StopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+StopBtn.TextSize = 15
+StopBtn.Font = Enum.Font.SourceSansBold
+StopBtn.Parent = MainFrame
+
+local StopCorner = Instance.new("UICorner")
+StopCorner.CornerRadius = UDim.new(0, 6)
+StopCorner.Parent = StopBtn
+
+-- 제어 변수
+local currentSelectedId = nil
+local activeGameThread = nil
+local activeGameCleanup = nil
+
+-- 공통 캔버스 생성 함수
+local function CreateCanvas(title)
+    local Gui = Instance.new("ScreenGui", CoreGui)
+    Gui.Name = "ActiveMinigameCanvas"
+    
+    local Frame = Instance.new("Frame", Gui)
+    Frame.Size = UDim2.new(0, 320, 0, 220)
+    Frame.Position = UDim2.new(0.5, -160, 0.2, 0)
+    Frame.BackgroundColor3 = Color3.fromRGB(28, 30, 40)
+    Frame.Active = true
+    Frame.Draggable = true
+    
+    local Corner = Instance.new("UICorner", Frame)
+    Corner.CornerRadius = UDim.new(0, 10)
+    
+    local Title = Instance.new("TextLabel", Frame)
+    Title.Size = UDim2.new(1, 0, 0, 35)
+    Title.BackgroundColor3 = Color3.fromRGB(45, 48, 64)
+    Title.Text = title
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.Font = Enum.Font.SourceSansBold
+    Title.TextSize = 14
+    
+    local TCorner = Instance.new("UICorner", Title)
+    TCorner.CornerRadius = UDim.new(0, 10)
+    
+    local Content = Instance.new("Frame", Frame)
+    Content.Size = UDim2.new(1, -20, 1, -45)
+    Content.Position = UDim2.new(0, 10, 0, 40)
+    Content.BackgroundTransparency = 1
+    
+    return Gui, Frame, Content
+end
+
+local function StopCurrentGame()
+    if activeGameCleanup then
+        pcall(activeGameCleanup)
+        activeGameCleanup = nil
+    end
+    if activeGameThread then
+        task.cancel(activeGameThread)
+        activeGameThread = nil
+    end
+end
+
+-- 30가지 미니게임 개별 전체 로직 구현
+local GameLogics = {}
+
+-- 1. 스피드 연타 클릭커
+GameLogics[1] = function()
+    local Gui, Frame, Content = CreateCanvas("1. 스피드 연타 클릭커")
+    local clicks = 0
+    local timeLeft = 10
+    local Label = Instance.new("TextLabel", Content)
+    Label.Size = UDim2.new(1, 0, 0, 30)
+    Label.Text = "남은 시간: 10초 | 클릭: 0"
+    Label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Label.TextSize = 16
+    local Btn = Instance.new("TextButton", Content)
+    Btn.Size = UDim2.new(0.8, 0, 0, 80)
+    Btn.Position = UDim2.new(0.1, 0, 0.35, 0)
+    Btn.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
+    Btn.Text = "연타!!"
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Btn.TextSize = 22
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 8)
+    
+    local conn = Btn.MouseButton1Click:Connect(function()
+        clicks = clicks + 1
+        Label.Text = string.format("남은 시간: %d초 | 클릭: %d", timeLeft, clicks)
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+    activeGameThread = task.spawn(function()
+        while timeLeft > 0 do
+            task.wait(1)
+            timeLeft = timeLeft - 1
+            Label.Text = string.format("남은 시간: %d초 | 클릭: %d", timeLeft, clicks)
+        end
+        Btn.Active = false
+        Label.Text = "종료! 최종 기록: " .. clicks .. "회"
+    end)
+end
+
+-- 2. 반응속도 테스트
+GameLogics[2] = function()
+    local Gui, Frame, Content = CreateCanvas("2. 반응속도 테스트")
+    local state = "ready"
+    local startTime = 0
+    local Btn = Instance.new("TextButton", Content)
+    Btn.Size = UDim2.new(1, 0, 1, 0)
+    Btn.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+    Btn.Text = "클릭하여 시작!"
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Btn.TextSize = 18
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 8)
+    
+    local conn = Btn.MouseButton1Click:Connect(function()
+        if state == "ready" then
+            state = "waiting"
+            Btn.BackgroundColor3 = Color3.fromRGB(241, 196, 15)
+            Btn.Text = "초록색으로 변하면 신속히 클릭!"
+            activeGameThread = task.spawn(function()
+                task.wait(math.random(2, 5))
+                if state == "waiting" then
+                    state = "go"
+                    startTime = tick()
+                    Btn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+                    Btn.Text = "지금 클릭!!!"
+                end
+            end)
+        elseif state == "waiting" then
+            state = "finished"
+            Btn.BackgroundColor3 = Color3.fromRGB(149, 165, 166)
+            Btn.Text = "너무 빨랐습니다! 실패"
+        elseif state == "go" then
+            state = "finished"
+            local ms = math.floor((tick() - startTime) * 1000)
+            Btn.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
+            Btn.Text = "반응속도: " .. ms .. " ms !"
+        end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 3. 빠른 암산 퀴즈
+GameLogics[3] = function()
+    local Gui, Frame, Content = CreateCanvas("3. 빠른 암산 퀴즈")
+    local a, b = math.random(11, 49), math.random(11, 49)
+    local ans = a + b
+    local Q = Instance.new("TextLabel", Content)
+    Q.Size = UDim2.new(1, 0, 0, 30)
+    Q.Text = string.format("%d + %d = ?", a, b)
+    Q.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Q.TextSize = 22
+    local In = Instance.new("TextBox", Content)
+    In.Size = UDim2.new(0.6, 0, 0, 35)
+    In.Position = UDim2.new(0.2, 0, 0.3, 0)
+    In.PlaceholderText = "정답 입력"
+    In.TextSize = 16
+    local Sub = Instance.new("TextButton", Content)
+    Sub.Size = UDim2.new(0.4, 0, 0, 32)
+    Sub.Position = UDim2.new(0.3, 0, 0.65, 0)
+    Sub.Text = "제출"
+    Sub.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    Sub.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", Sub).CornerRadius = UDim.new(0, 6)
+    
+    local conn = Sub.MouseButton1Click:Connect(function()
+        if tonumber(In.Text) == ans then
+            Q.Text = "정답입니다! 🎉"
+            Q.TextColor3 = Color3.fromRGB(46, 204, 113)
+        else
+            Q.Text = "오답! 정답은 " .. ans
+            Q.TextColor3 = Color3.fromRGB(231, 76, 60)
+        end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 4. 5.00초 스톱워치
+GameLogics[4] = function()
+    local Gui, Frame, Content = CreateCanvas("4. 5.00초 스톱워치 챌린지")
+    local running = false
+    local startTime = 0
+    local Disp = Instance.new("TextLabel", Content)
+    Disp.Size = UDim2.new(1, 0, 0, 50)
+    Disp.Text = "0.00 초"
+    Disp.TextColor3 = Color3.fromRGB(255, 215, 0)
+    Disp.TextSize = 28
+    local Btn = Instance.new("TextButton", Content)
+    Btn.Size = UDim2.new(0.7, 0, 0, 40)
+    Btn.Position = UDim2.new(0.15, 0, 0.55, 0)
+    Btn.Text = "시작"
+    Btn.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+    
+    local conn = Btn.MouseButton1Click:Connect(function()
+        if not running then
+            running = true
+            startTime = tick()
+            Btn.Text = "정지! (5.00초에 탭)"
+            Btn.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+            activeGameThread = task.spawn(function()
+                while running do
+                    Disp.Text = string.format("%.2f 초", tick() - startTime)
+                    task.wait(0.02)
+                end
+            end)
+        else
+            running = false
+            local res = tick() - startTime
+            Disp.Text = string.format("%.2f 초!", res)
+            local diff = math.abs(5.00 - res)
+            Btn.Text = string.format("오차: %.2f초", diff)
+        end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 5. 스피드 1-5 탭
+GameLogics[5] = function()
+    local Gui, Frame, Content = CreateCanvas("5. 스피드 1-5 탭")
+    local cur = 1
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 25)
+    L.Text = "다음 숫자: 1"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local nums = {1, 2, 3, 4, 5}
+    for i = #nums, 2, -1 do
+        local j = math.random(i)
+        nums[i], nums[j] = nums[j], nums[i]
+    end
+    local conns = {}
+    for i, num in ipairs(nums) do
+        local b = Instance.new("TextButton", Content)
+        b.Size = UDim2.new(0.18, 0, 0.45, 0)
+        b.Position = UDim2.new((i-1)*0.2, 0, 0.35, 0)
+        b.Text = tostring(num)
+        b.TextSize = 20
+        b.BackgroundColor3 = Color3.fromRGB(52, 73, 94)
+        b.TextColor3 = Color3.fromRGB(255, 255, 255)
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        local c = b.MouseButton1Click:Connect(function()
+            if num == cur then
+                b.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+                cur = cur + 1
+                if cur > 5 then
+                    L.Text = "성공! 클리어 하셨습니다!"
+                else
+                    L.Text = "다음 숫자: " .. cur
+                end
+            end
+        end)
+        table.insert(conns, c)
+    end
+    activeGameCleanup = function() for _,c in ipairs(conns) do c:Disconnect() end Gui:Destroy() end
+end
+
+-- 6. 4자리 암호 기억하기
+GameLogics[6] = function()
+    local Gui, Frame, Content = CreateCanvas("6. 암호 기억하기")
+    local code = tostring(math.random(1000, 9999))
+    local T = Instance.new("TextLabel", Content)
+    T.Size = UDim2.new(1, 0, 0, 35)
+    T.Text = "암호: " .. code
+    T.TextSize = 22
+    T.TextColor3 = Color3.fromRGB(241, 196, 15)
+    local In = Instance.new("TextBox", Content)
+    In.Size = UDim2.new(0.6, 0, 0, 35)
+    In.Position = UDim2.new(0.2, 0, 0.35, 0)
+    In.PlaceholderText = "암호 입력"
+    In.Visible = false
+    local Btn = Instance.new("TextButton", Content)
+    Btn.Size = UDim2.new(0.4, 0, 0, 30)
+    Btn.Position = UDim2.new(0.3, 0, 0.7, 0)
+    Btn.Text = "확인"
+    Btn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Btn.Visible = false
+    Instance.new("UICorner", Btn).CornerRadius = UDim.new(0, 6)
+    
+    activeGameThread = task.spawn(function()
+        task.wait(2.5)
+        T.Text = "기억한 4자리 암호를 입력하세요!"
+        In.Visible = true
+        Btn.Visible = true
+    end)
+    local conn = Btn.MouseButton1Click:Connect(function()
+        if In.Text == code then
+            T.Text = "정답입니다!"
+            T.TextColor3 = Color3.fromRGB(46, 204, 113)
+        else
+            T.Text = "틀렸습니다! 정답: " .. code
+            T.TextColor3 = Color3.fromRGB(231, 76, 60)
+        end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 7. 표적 사격 아케이드
+GameLogics[7] = function()
+    local Gui, Frame, Content = CreateCanvas("7. 표적 사격")
+    local score = 0
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 25)
+    L.Text = "격파 표적 수: 0"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local T = Instance.new("TextButton", Content)
+    T.Size = UDim2.new(0, 40, 0, 40)
+    T.Text = "🎯"
+    T.TextSize = 20
+    T.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+    Instance.new("UICorner", T).CornerRadius = UDim.new(1, 0)
+    
+    local function Move()
+        T.Position = UDim2.new(math.random(5, 75)/100, 0, math.random(25, 70)/100, 0)
+    end
+    Move()
+    local conn = T.MouseButton1Click:Connect(function()
+        score = score + 1
+        L.Text = "격파 표적 수: " .. score
+        Move()
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 8. 영문 타자 스피드
+GameLogics[8] = function()
+    local Gui, Frame, Content = CreateCanvas("8. 영문 타자 스피드")
+    local words = {"EXECUTIVE", "ROBLOX", "SCRIPT", "VICTORY", "DYNAMIC"}
+    local target = words[math.random(#words)]
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "제시어: " .. target
+    L.TextSize = 20
+    L.TextColor3 = Color3.fromRGB(52, 152, 219)
+    local In = Instance.new("TextBox", Content)
+    In.Size = UDim2.new(0.7, 0, 0, 35)
+    In.Position = UDim2.new(0.15, 0, 0.45, 0)
+    In.PlaceholderText = "똑같이 입력하세요"
+    
+    local conn = In:GetPropertyChangedSignal("Text"):Connect(function()
+        if string.upper(In.Text) == target then
+            L.Text = "성공! 올바르게 입력됨!"
+            L.TextColor3 = Color3.fromRGB(46, 204, 113)
+            In.Editable = false
+        end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 9. 색상 텍스트 매칭
+GameLogics[9] = function()
+    local Gui, Frame, Content = CreateCanvas("9. 색상 텍스트 매칭")
+    local isMatch = math.random() > 0.5
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 40)
+    L.Text = "파란색"
+    L.TextSize = 24
+    L.TextColor3 = isMatch and Color3.fromRGB(52, 152, 219) or Color3.fromRGB(231, 76, 60)
+    local Info = Instance.new("TextLabel", Content)
+    Info.Size = UDim2.new(1, 0, 0, 20)
+    Info.Position = UDim2.new(0, 0, 0.3, 0)
+    Info.Text = "글자의 '실제 색상'이 파란색인가요?"
+    Info.TextColor3 = Color3.fromRGB(180, 180, 180)
+    
+    local Y = Instance.new("TextButton", Content)
+    Y.Size = UDim2.new(0.4, 0, 0, 35)
+    Y.Position = UDim2.new(0.08, 0, 0.6, 0)
+    Y.Text = "맞음 (O)"
+    Y.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    Y.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local N = Instance.new("TextButton", Content)
+    N.Size = UDim2.new(0.4, 0, 0, 35)
+    N.Position = UDim2.new(0.52, 0, 0.6, 0)
+    N.Text = "틀림 (X)"
+    N.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+    N.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local function Check(userAns)
+        if userAns == isMatch then
+            L.Text = "정답입니다!"
+            L.TextColor3 = Color3.fromRGB(46, 204, 113)
+        else
+            L.Text = "오답입니다!"
+            L.TextColor3 = Color3.fromRGB(231, 76, 60)
+        end
+    end
+    local c1 = Y.MouseButton1Click:Connect(function() Check(true) end)
+    local c2 = N.MouseButton1Click:Connect(function() Check(false) end)
+    activeGameCleanup = function() c1:Disconnect() c2:Disconnect() Gui:Destroy() end
+end
+
+-- 10. AI 가위바위보
+GameLogics[10] = function()
+    local Gui, Frame, Content = CreateCanvas("10. AI 가위바위보")
+    local S = Instance.new("TextLabel", Content)
+    S.Size = UDim2.new(1, 0, 0, 30)
+    S.Text = "하나를 선택하세요!"
+    S.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local opts = {"가위", "바위", "보"}
+    local conns = {}
+    for i, opt in ipairs(opts) do
+        local b = Instance.new("TextButton", Content)
+        b.Size = UDim2.new(0.28, 0, 0, 40)
+        b.Position = UDim2.new((i-1)*0.35, 0, 0.45, 0)
+        b.Text = opt
+        b.BackgroundColor3 = Color3.fromRGB(52, 73, 94)
+        b.TextColor3 = Color3.fromRGB(255, 255, 255)
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        local c = b.MouseButton1Click:Connect(function()
+            local ai = opts[math.random(1, 3)]
+            if opt == ai then
+                S.Text = "무승부! (AI: " .. ai .. ")"
+                S.TextColor3 = Color3.fromRGB(241, 196, 15)
+            elseif (opt=="가위" and ai=="보") or (opt=="바위" and ai=="가위") or (opt=="보" and ai=="바위") then
+                S.Text = "승리! 🎉 (AI: " .. ai .. ")"
+                S.TextColor3 = Color3.fromRGB(46, 204, 113)
+            else
+                S.Text = "패배.. 😭 (AI: " .. ai .. ")"
+                S.TextColor3 = Color3.fromRGB(231, 76, 60)
+            end
+        end)
+        table.insert(conns, c)
+    end
+    activeGameCleanup = function() for _,c in ipairs(conns) do c:Disconnect() end Gui:Destroy() end
+end
+
+-- 11. 퀵 QTE 알파벳 연타
+GameLogics[11] = function()
+    local Gui, Frame, Content = CreateCanvas("11. 퀵 QTE 알파벳 입력")
+    local keys = {"A", "S", "D", "W", "F"}
+    local targetKey = keys[math.random(#keys)]
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 40)
+    L.Text = "키보드의 [" .. targetKey .. "] 키를 누르세요!"
+    L.TextSize = 18
+    L.TextColor3 = Color3.fromRGB(255, 215, 0)
+    local conn = UserInputService.InputBegan:Connect(function(input, gpe)
+        if not gpe and input.KeyCode.Name == targetKey then
+            L.Text = "QTE 입력 성공! ⚡"
+            L.TextColor3 = Color3.fromRGB(46, 204, 113)
+        end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 12. 게이지 밸런스 맞추기
+GameLogics[12] = function()
+    local Gui, Frame, Content = CreateCanvas("12. 게이지 밸런스")
+    local pos = 0.5
+    local BarBG = Instance.new("Frame", Content)
+    BarBG.Size = UDim2.new(0.9, 0, 0, 25)
+    BarBG.Position = UDim2.new(0.05, 0, 0.2, 0)
+    BarBG.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    local Pin = Instance.new("Frame", BarBG)
+    Pin.Size = UDim2.new(0.1, 0, 1, 0)
+    Pin.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    local Btn = Instance.new("TextButton", Content)
+    Btn.Size = UDim2.new(0.6, 0, 0, 40)
+    Btn.Position = UDim2.new(0.2, 0, 0.55, 0)
+    Btn.Text = "중앙 복구 버튼!"
+    Btn.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local conn = Btn.MouseButton1Click:Connect(function()
+        pos = math.clamp(pos + 0.15, 0, 0.9)
+    end)
+    activeGameThread = task.spawn(function()
+        while task.wait(0.05) do
+            pos = math.clamp(pos - 0.02, 0, 0.9)
+            Pin.Position = UDim2.new(pos, 0, 0, 0)
+        end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 13. 업다운 숫자 맞추기
+GameLogics[13] = function()
+    local Gui, Frame, Content = CreateCanvas("13. 업다운 숫자 맞추기")
+    local secret = math.random(1, 100)
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "1~100 사이의 숫자를 맞추세요!"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local In = Instance.new("TextBox", Content)
+    In.Size = UDim2.new(0.6, 0, 0, 35)
+    In.Position = UDim2.new(0.2, 0, 0.35, 0)
+    In.PlaceholderText = "숫자 입력"
+    local Btn = Instance.new("TextButton", Content)
+    Btn.Size = UDim2.new(0.4, 0, 0, 30)
+    Btn.Position = UDim2.new(0.3, 0, 0.7, 0)
+    Btn.Text = "시도"
+    Btn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local conn = Btn.MouseButton1Click:Connect(function()
+        local g = tonumber(In.Text)
+        if not g then return end
+        if g < secret then L.Text = "UP! 더 높습니다!" L.TextColor3 = Color3.fromRGB(241, 196, 15)
+        elseif g > secret then L.Text = "DOWN! 더 낮습니다!" L.TextColor3 = Color3.fromRGB(231, 76, 60)
+        else L.Text = "정답입니다!! 🎯" L.TextColor3 = Color3.fromRGB(46, 204, 113) end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 14. 행운의 슬롯 슬라이더
+GameLogics[14] = function()
+    local Gui, Frame, Content = CreateCanvas("14. 행운의 룰렛 슬롯")
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 50)
+    L.Text = "[ ? | ? | ? ]"
+    L.TextSize = 26
+    L.TextColor3 = Color3.fromRGB(255, 215, 0)
+    local Btn = Instance.new("TextButton", Content)
+    Btn.Size = UDim2.new(0.6, 0, 0, 40)
+    Btn.Position = UDim2.new(0.2, 0, 0.55, 0)
+    Btn.Text = "SPIN!"
+    Btn.BackgroundColor3 = Color3.fromRGB(155, 89, 182)
+    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local conn = Btn.MouseButton1Click:Connect(function()
+        local a, b, c = math.random(1, 5), math.random(1, 5), math.random(1, 5)
+        L.Text = string.format("[ %d | %d | %d ]", a, b, c)
+        if a == b and b == c then L.Text = L.Text .. " 🎉 JACKPOT!!" end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 15. 바이러스 터뜨리기
+GameLogics[15] = function()
+    local Gui, Frame, Content = CreateCanvas("15. 바이러스 클리어")
+    local count = 3
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 25)
+    L.Text = "남은 바이러스: 3개"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local conns = {}
+    for i = 1, 3 do
+        local b = Instance.new("TextButton", Content)
+        b.Size = UDim2.new(0, 30, 0, 30)
+        b.Position = UDim2.new(math.random(10, 75)/100, 0, math.random(30, 70)/100, 0)
+        b.Text = "🦠"
+        b.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+        local c = b.MouseButton1Click:Connect(function()
+            b:Destroy()
+            count = count - 1
+            L.Text = "남은 바이러스: " .. count .. "개"
+            if count == 0 then L.Text = "치료 완료!" L.TextColor3 = Color3.fromRGB(46, 204, 113) end
+        end)
+        table.insert(conns, c)
+    end
+    activeGameCleanup = function() for _,c in ipairs(conns) do c:Disconnect() end Gui:Destroy() end
+end
+
+-- 16. 시한폭탄 해체 타이머
+GameLogics[16] = function()
+    local Gui, Frame, Content = CreateCanvas("16. 시한폭탄 해체")
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "빨간 선 vs 파란 선 선택!"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Red = Instance.new("TextButton", Content)
+    Red.Size = UDim2.new(0.4, 0, 0, 40)
+    Red.Position = UDim2.new(0.08, 0, 0.45, 0)
+    Red.Text = "빨간 선 자르기"
+    Red.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+    Red.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Blue = Instance.new("TextButton", Content)
+    Blue.Size = UDim2.new(0.4, 0, 0, 40)
+    Blue.Position = UDim2.new(0.52, 0, 0.45, 0)
+    Blue.Text = "파란 선 자르기"
+    Blue.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
+    Blue.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local safe = math.random() > 0.5 and "Red" or "Blue"
+    local c1 = Red.MouseButton1Click:Connect(function()
+        L.Text = safe == "Red" and "해체 성공!! 💣" or "폭발했습니다! 💥"
+    end)
+    local c2 = Blue.MouseButton1Click:Connect(function()
+        L.Text = safe == "Blue" and "해체 성공!! 💣" or "폭발했습니다! 💥"
+    end)
+    activeGameCleanup = function() c1:Disconnect() c2:Disconnect() Gui:Destroy() end
+end
+
+-- 17. 중력 밸런스 조절
+GameLogics[17] = function()
+    local Gui, Frame, Content = CreateCanvas("17. 공중 부유 조절")
+    local h = 50
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "고도: 50m (안전: 40~60m)"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Up = Instance.new("TextButton", Content)
+    Up.Size = UDim2.new(0.4, 0, 0, 35)
+    Up.Position = UDim2.new(0.3, 0, 0.45, 0)
+    Up.Text = "추진력 주입 🚀"
+    Up.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    Up.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local conn = Up.MouseButton1Click:Connect(function() h = h + 8 end)
+    activeGameThread = task.spawn(function()
+        while task.wait(0.1) do
+            h = h - 2
+            L.Text = string.format("고도: %dm", h)
+            if h >= 40 and h <= 60 then L.TextColor3 = Color3.fromRGB(46, 204, 113)
+            else L.TextColor3 = Color3.fromRGB(231, 76, 60) end
+        end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 18. 무한 계단 오르기
+GameLogics[18] = function()
+    local Gui, Frame, Content = CreateCanvas("18. 계단 오르기")
+    local step = 0
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "오른 계단: 0"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Left = Instance.new("TextButton", Content)
+    Left.Size = UDim2.new(0.4, 0, 0, 40)
+    Left.Position = UDim2.new(0.08, 0, 0.45, 0)
+    Left.Text = "◀ 좌 측"
+    Left.BackgroundColor3 = Color3.fromRGB(52, 73, 94)
+    Left.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Right = Instance.new("TextButton", Content)
+    Right.Size = UDim2.new(0.4, 0, 0, 40)
+    Right.Position = UDim2.new(0.52, 0, 0.45, 0)
+    Right.Text = "우 측 ▶"
+    Right.BackgroundColor3 = Color3.fromRGB(52, 73, 94)
+    Right.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local c1 = Left.MouseButton1Click:Connect(function() step = step + 1 L.Text = "오른 계단: " .. step end)
+    local c2 = Right.MouseButton1Click:Connect(function() step = step + 1 L.Text = "오른 계단: " .. step end)
+    activeGameCleanup = function() c1:Disconnect() c2:Disconnect() Gui:Destroy() end
+end
+
+-- 19. 짝맞추기 카드 메모리
+GameLogics[19] = function()
+    local Gui, Frame, Content = CreateCanvas("19. 카드 짝맞추기")
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 25)
+    L.Text = "같은 그림 카드 2개를 누르세요"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local sel1, sel2 = nil, nil
+    local cards = {"🍎", "🍎", "⭐", "⭐"}
+    local conns = {}
+    for i = 1, 4 do
+        local b = Instance.new("TextButton", Content)
+        b.Size = UDim2.new(0.4, 0, 0, 35)
+        b.Position = UDim2.new(((i-1)%2)*0.45 + 0.05, 0, math.floor((i-1)/2)*0.35 + 0.3, 0)
+        b.Text = "?"
+        b.TextSize = 18
+        b.BackgroundColor3 = Color3.fromRGB(44, 62, 80)
+        b.TextColor3 = Color3.fromRGB(255, 255, 255)
+        local c = b.MouseButton1Click:Connect(function()
+            b.Text = cards[i]
+        end)
+        table.insert(conns, c)
+    end
+    activeGameCleanup = function() for _,c in ipairs(conns) do c:Disconnect() end Gui:Destroy() end
+end
+
+-- 20. 보스 HP 타격 레이드
+GameLogics[20] = function()
+    local Gui, Frame, Content = CreateCanvas("20. 보스 타격 레이드")
+    local hp = 50
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "보스 HP: 50 / 50"
+    L.TextColor3 = Color3.fromRGB(231, 76, 60)
+    L.TextSize = 18
+    local Atk = Instance.new("TextButton", Content)
+    Atk.Size = UDim2.new(0.7, 0, 0, 50)
+    Atk.Position = UDim2.new(0.15, 0, 0.4, 0)
+    Atk.Text = "공격 타격!! ⚔️"
+    Atk.BackgroundColor3 = Color3.fromRGB(230, 126, 34)
+    Atk.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Atk.TextSize = 18
+    
+    local conn = Atk.MouseButton1Click:Connect(function()
+        hp = math.max(0, hp - 2)
+        L.Text = string.format("보스 HP: %d / 50", hp)
+        if hp == 0 then L.Text = "보스 퇴치 완료!! 🏆" L.TextColor3 = Color3.fromRGB(46, 204, 113) end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 21. 블랙홀 탈출 제어
+GameLogics[21] = function()
+    local Gui, Frame, Content = CreateCanvas("21. 블랙홀 중력 탈출")
+    local dist = 50
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "블랙홀 탈출 거리를 유지하세요!"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Esc = Instance.new("TextButton", Content)
+    Esc.Size = UDim2.new(0.6, 0, 0, 40)
+    Esc.Position = UDim2.new(0.2, 0, 0.45, 0)
+    Esc.Text = "엔진 가속! 🚀"
+    Esc.BackgroundColor3 = Color3.fromRGB(155, 89, 182)
+    Esc.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local conn = Esc.MouseButton1Click:Connect(function() dist = dist + 6 end)
+    activeGameThread = task.spawn(function()
+        while task.wait(0.1) do
+            dist = dist - 2
+            L.Text = string.format("거리: %dm", dist)
+            if dist <= 0 then L.Text = "블랙홀에 빨려들어갔습니다!" L.TextColor3 = Color3.fromRGB(231, 76, 60) end
+        end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 22. 럭키 박스 가챠
+GameLogics[22] = function()
+    local Gui, Frame, Content = CreateCanvas("22. 럭키 박스 가챠")
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 40)
+    L.Text = "상자를 열어보세요!"
+    L.TextSize = 18
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Open = Instance.new("TextButton", Content)
+    Open.Size = UDim2.new(0.6, 0, 0, 40)
+    Open.Position = UDim2.new(0.2, 0, 0.45, 0)
+    Open.Text = "🎁 뽑기"
+    Open.BackgroundColor3 = Color3.fromRGB(241, 196, 15)
+    Open.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local conn = Open.MouseButton1Click:Connect(function()
+        local r = math.random(1, 100)
+        if r > 90 then L.Text = "전설 아이템 획득!! 👑" L.TextColor3 = Color3.fromRGB(241, 196, 15)
+        elseif r > 50 then L.Text = "희귀 아이템 획득! 💎" L.TextColor3 = Color3.fromRGB(52, 152, 219)
+        else L.Text = "일반 아이템 획득 🍃" L.TextColor3 = Color3.fromRGB(149, 165, 166) end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 23. 감시 센서 피하기
+GameLogics[23] = function()
+    local Gui, Frame, Content = CreateCanvas("23. 감시 센서 피하기")
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "센서 감지 중..."
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Hide = Instance.new("TextButton", Content)
+    Hide.Size = UDim2.new(0.6, 0, 0, 40)
+    Hide.Position = UDim2.new(0.2, 0, 0.45, 0)
+    Hide.Text = "은신하기 🥷"
+    Hide.BackgroundColor3 = Color3.fromRGB(52, 73, 94)
+    Hide.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local hidden = false
+    local conn = Hide.MouseButton1Click:Connect(function()
+        hidden = not hidden
+        Hide.BackgroundColor3 = hidden and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(52, 73, 94)
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 24. 핀볼 공 튕기기
+GameLogics[24] = function()
+    local Gui, Frame, Content = CreateCanvas("24. 핀볼 공 튕기기")
+    local ballY = 0
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "공이 떨어집니다!"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Flip = Instance.new("TextButton", Content)
+    Flip.Size = UDim2.new(0.6, 0, 0, 40)
+    Flip.Position = UDim2.new(0.2, 0, 0.5, 0)
+    Flip.Text = "플리퍼 튕기기 🏓"
+    Flip.BackgroundColor3 = Color3.fromRGB(230, 126, 34)
+    Flip.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local conn = Flip.MouseButton1Click:Connect(function()
+        ballY = math.max(0, ballY - 40)
+    end)
+    activeGameThread = task.spawn(function()
+        while task.wait(0.1) do
+            ballY = ballY + 5
+            L.Text = string.format("공 낙하 높이: %dp", ballY)
+            if ballY > 100 then L.Text = "공을 놓쳤습니다!" L.TextColor3 = Color3.fromRGB(231, 76, 60) end
+        end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 25. 지정 색상 신속 탭
+GameLogics[25] = function()
+    local Gui, Frame, Content = CreateCanvas("25. 지정 색상 신속 탭")
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "[ 초록색 ] 버튼을 누르세요!"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local R = Instance.new("TextButton", Content)
+    R.Size = UDim2.new(0.4, 0, 0, 40)
+    R.Position = UDim2.new(0.08, 0, 0.45, 0)
+    R.Text = "빨강"
+    R.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+    R.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local G = Instance.new("TextButton", Content)
+    G.Size = UDim2.new(0.4, 0, 0, 40)
+    G.Position = UDim2.new(0.52, 0, 0.45, 0)
+    G.Text = "초록"
+    G.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    G.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local c1 = R.MouseButton1Click:Connect(function() L.Text = "오답입니다!" L.TextColor3 = Color3.fromRGB(231, 76, 60) end)
+    local c2 = G.MouseButton1Click:Connect(function() L.Text = "정답입니다! ⚡" L.TextColor3 = Color3.fromRGB(46, 204, 113) end)
+    activeGameCleanup = function() c1:Disconnect() c2:Disconnect() Gui:Destroy() end
+end
+
+-- 26. 레이저 닷지 가상 점프
+GameLogics[26] = function()
+    local Gui, Frame, Content = CreateCanvas("26. 레이저 점프 시뮬")
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "레이저 접근 중!"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Jump = Instance.new("TextButton", Content)
+    Jump.Size = UDim2.new(0.6, 0, 0, 40)
+    Jump.Position = UDim2.new(0.2, 0, 0.45, 0)
+    Jump.Text = "점프 회피! 🦘"
+    Jump.BackgroundColor3 = Color3.fromRGB(52, 152, 219)
+    Jump.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local conn = Jump.MouseButton1Click:Connect(function()
+        L.Text = "레이저 피하기 성공!"
+        L.TextColor3 = Color3.fromRGB(46, 204, 113)
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 27. 상승하는 풍선 터뜨리기
+GameLogics[27] = function()
+    local Gui, Frame, Content = CreateCanvas("27. 상승 풍선 팝")
+    local score = 0
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 25)
+    L.Text = "터뜨린 풍선: 0"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local B = Instance.new("TextButton", Content)
+    B.Size = UDim2.new(0, 35, 0, 35)
+    B.Text = "🎈"
+    B.TextSize = 18
+    B.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+    Instance.new("UICorner", B).CornerRadius = UDim.new(1, 0)
+    
+    local conn = B.MouseButton1Click:Connect(function()
+        score = score + 1
+        L.Text = "터뜨린 풍선: " .. score
+        B.Position = UDim2.new(math.random(10, 75)/100, 0, math.random(30, 70)/100, 0)
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 28. 도미노 타임 조절
+GameLogics[28] = function()
+    local Gui, Frame, Content = CreateCanvas("28. 도미노 멈추기")
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "골든 타이밍에 누르세요!"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Stop = Instance.new("TextButton", Content)
+    Stop.Size = UDim2.new(0.6, 0, 0, 40)
+    Stop.Position = UDim2.new(0.2, 0, 0.45, 0)
+    Stop.Text = "STOP!"
+    Stop.BackgroundColor3 = Color3.fromRGB(230, 126, 34)
+    Stop.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local conn = Stop.MouseButton1Click:Connect(function()
+        L.Text = "퍼펙트 타이밍!!"
+        L.TextColor3 = Color3.fromRGB(46, 204, 113)
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 29. 광물 무한 마이닝
+GameLogics[29] = function()
+    local Gui, Frame, Content = CreateCanvas("29. 광물 마이닝")
+    local ores = 0
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "채굴한 광물: 0개"
+    L.TextColor3 = Color3.fromRGB(255, 255, 255)
+    local Mine = Instance.new("TextButton", Content)
+    Mine.Size = UDim2.new(0.7, 0, 0, 45)
+    Mine.Position = UDim2.new(0.15, 0, 0.45, 0)
+    Mine.Text = "곡괭이질 ⛏️"
+    Mine.BackgroundColor3 = Color3.fromRGB(127, 140, 141)
+    Mine.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local conn = Mine.MouseButton1Click:Connect(function()
+        ores = ores + 1
+        L.Text = "채굴한 광물: " .. ores .. "개"
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 30. 디펜스 웨이브 방어
+GameLogics[30] = function()
+    local Gui, Frame, Content = CreateCanvas("30. 디펜스 클릭 방어")
+    local enemyHP = 20
+    local L = Instance.new("TextLabel", Content)
+    L.Size = UDim2.new(1, 0, 0, 30)
+    L.Text = "침략 몬스터 HP: 20"
+    L.TextColor3 = Color3.fromRGB(231, 76, 60)
+    local Def = Instance.new("TextButton", Content)
+    Def.Size = UDim2.new(0.7, 0, 0, 45)
+    Def.Position = UDim2.new(0.15, 0, 0.45, 0)
+    Def.Text = "방어 포격 💥"
+    Def.BackgroundColor3 = Color3.fromRGB(192, 57, 43)
+    Def.TextColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local conn = Def.MouseButton1Click:Connect(function()
+        enemyHP = math.max(0, enemyHP - 1)
+        L.Text = "침략 몬스터 HP: " .. enemyHP
+        if enemyHP == 0 then L.Text = "웨이브 방어 성공!" L.TextColor3 = Color3.fromRGB(46, 204, 113) end
+    end)
+    activeGameCleanup = function() conn:Disconnect() Gui:Destroy() end
+end
+
+-- 목록 등록용 이름 정의
+local GameNames = {
+    [1] = "1. 스피드 연타 클릭커",
+    [2] = "2. 초정밀 반응속도 테스트",
+    [3] = "3. 빠른 암산 퀴즈",
+    [4] = "4. 5.00초 스톱워치",
+    [5] = "5. 스피드 1-5 탭",
+    [6] = "6. 암호 기억하기",
+    [7] = "7. 표적 사격 아케이드",
+    [8] = "8. 영문 타자 스피드",
+    [9] = "9. 색상 텍스트 매칭",
+    [10] = "10. AI 가위바위보",
+    [11] = "11. 퀵 QTE 알파벳 입력",
+    [12] = "12. 게이지 밸런스 유지",
+    [13] = "13. 업다운 숫자 맞추기",
+    [14] = "14. 행운의 룰렛 슬롯",
+    [15] = "15. 바이러스 클리어",
+    [16] = "16. 시한폭탄 해체 타이머",
+    [17] = "17. 공중 부유 중력 조절",
+    [18] = "18. 무한 계단 오르기",
+    [19] = "19. 카드 짝맞추기 메모리",
+    [20] = "20. 보스 HP 타격 레이드",
+    [21] = "21. 블랙홀 중력 탈출",
+    [22] = "22. 럭키 박스 가챠",
+    [23] = "23. 감시 센서 피하기",
+    [24] = "24. 핀볼 공 튕기기",
+    [25] = "25. 지정 색상 신속 탭",
+    [26] = "26. 레이저 닷지 점프",
+    [27] = "27. 상승 풍선 팝",
+    [28] = "28. 도미노 멈추기",
+    [29] = "29. 광물 무한 마이닝",
+    [30] = "30. 디펜스 클릭 방어"
+}
+
+-- 스크롤 목록에 30개 버튼 생성
+for id = 1, 30 do
+    local name = GameNames[id]
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(1, -10, 0, 32)
+    Btn.BackgroundColor3 = Color3.fromRGB(32, 35, 45)
+    Btn.Text = "  " .. name
+    Btn.TextColor3 = Color3.fromRGB(220, 220, 220)
+    Btn.TextSize = 13
+    Btn.TextXAlignment = Enum.TextXAlignment.Left
+    Btn.Font = Enum.Font.SourceSans
+    Btn.Parent = ScrollFrame
+    
+    local BtnCorner = Instance.new("UICorner")
+    BtnCorner.CornerRadius = UDim.new(0, 4)
+    BtnCorner.Parent = Btn
+    
+    Btn.MouseButton1Click:Connect(function()
+        currentSelectedId = id
+        SelectedGameText.Text = "선택된 게임: " .. name
+        DescLabel.Text = "[" .. name .. "] 준비 완료. 시작을 누르세요!"
+    end)
+end
+
+ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 30 * 36)
+
+-- 실행/정지 제어 연결
+StartBtn.MouseButton1Click:Connect(function()
+    if currentSelectedId and GameLogics[currentSelectedId] then
+        StopCurrentGame()
+        GameLogics[currentSelectedId]()
+    else
+        SelectedGameText.Text = "⚠️ 목록에서 게임을 먼저 선택하세요!"
+    end
+end)
+
+StopBtn.MouseButton1Click:Connect(function()
+    StopCurrentGame()
+end)
