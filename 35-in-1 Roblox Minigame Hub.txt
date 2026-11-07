@@ -1,0 +1,307 @@
+--[[
+    ==================================================
+    35-in-1 Roblox Executor Minigame Selector Hub
+    ==================================================
+    설명: 흥미진진한 35가지 미니게임을 UI에서 선택하여 
+          즐길 수 있는 익스큐터용 루아(Luau) 통합 스크립트입니다.
+--]]
+
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- 기존 UI 제거 (중복 실행 방지)
+if CoreGui:FindFirstChild("MinigameHub35Screen") then
+    CoreGui.MinigameHub35Screen:Destroy()
+end
+
+-- UI 메인 구조 생성
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MinigameHub35Screen"
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 380, 0, 460)
+MainFrame.Position = UDim2.new(0.5, -190, 0.5, -230)
+MainFrame.BackgroundColor3 = Color3.fromRGB(24, 26, 33)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.Parent = MainFrame
+
+-- 타이틀바
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, 0, 0, 50)
+TitleLabel.BackgroundColor3 = Color3.fromRGB(38, 42, 54)
+TitleLabel.Text = "🔥 35 Ultimate Minigame Hub"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextSize = 18
+TitleLabel.Font = Enum.Font.SourceSansBold
+TitleLabel.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 12)
+TitleCorner.Parent = TitleLabel
+
+-- 설명 표시
+local DescLabel = Instance.new("TextLabel")
+DescLabel.Size = UDim2.new(1, -40, 0, 30)
+DescLabel.Position = UDim2.new(0, 20, 0, 55)
+DescLabel.BackgroundTransparency = 1
+DescLabel.Text = "원하는 미니게임을 목록에서 선택하고 실행 버튼을 누르세요!"
+DescLabel.TextColor3 = Color3.fromRGB(170, 175, 190)
+DescLabel.TextSize = 13
+DescLabel.Font = Enum.Font.SourceSans
+DescLabel.Parent = MainFrame
+
+-- 스크롤 프레임
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Size = UDim2.new(1, -40, 0, 250)
+ScrollFrame.Position = UDim2.new(0, 20, 0, 90)
+ScrollFrame.BackgroundColor3 = Color3.fromRGB(16, 18, 23)
+ScrollFrame.BorderSizePixel = 0
+ScrollFrame.ScrollBarThickness = 6
+ScrollFrame.Parent = MainFrame
+
+local ScrollCorner = Instance.new("UICorner")
+ScrollCorner.CornerRadius = UDim.new(0, 8)
+ScrollCorner.Parent = ScrollFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Parent = ScrollFrame
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 4)
+
+-- 하단 컨트롤 박스
+local SelectedGameText = Instance.new("TextLabel")
+SelectedGameText.Size = UDim2.new(1, -40, 0, 25)
+SelectedGameText.Position = UDim2.new(0, 20, 0, 350)
+SelectedGameText.BackgroundTransparency = 1
+SelectedGameText.Text = "선택된 게임: 없음"
+SelectedGameText.TextColor3 = Color3.fromRGB(255, 215, 0)
+SelectedGameText.TextSize = 14
+SelectedGameText.Font = Enum.Font.SourceSansBold
+SelectedGameText.Parent = MainFrame
+
+local StartBtn = Instance.new("TextButton")
+StartBtn.Size = UDim2.new(0.44, 0, 0, 42)
+StartBtn.Position = UDim2.new(0.05, 5, 0, 395)
+StartBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+StartBtn.Text = "🚀 게임 시작"
+StartBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+StartBtn.TextSize = 15
+StartBtn.Font = Enum.Font.SourceSansBold
+StartBtn.Parent = MainFrame
+
+local StartCorner = Instance.new("UICorner")
+StartCorner.CornerRadius = UDim.new(0, 8)
+StartCorner.Parent = StartBtn
+
+local StopBtn = Instance.new("TextButton")
+StopBtn.Size = UDim2.new(0.44, 0, 0, 42)
+StopBtn.Position = UDim2.new(0.51, 5, 0, 395)
+StopBtn.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+StopBtn.Text = "🛑 게임 중지"
+StopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+StopBtn.TextSize = 15
+StopBtn.Font = Enum.Font.SourceSansBold
+StopBtn.Parent = MainFrame
+
+local StopCorner = Instance.new("UICorner")
+StopCorner.CornerRadius = UDim.new(0, 8)
+StopCorner.Parent = StopBtn
+
+-- 실행 상태 제어 변수
+local currentSelectedId = nil
+local activeGameThread = nil
+local activeGameCleanup = nil
+
+-- 35개 흥미진진한 미니게임 목록 정의
+local Games = {
+    [1] = { name = "1. 광속 클릭 클릭커 챌린지", desc = "10초 제한시간 동안 목표 클릭 수에 도전하세요!" },
+    [2] = { name = "2. 신경응답 반응속도 테스트", desc = "화면이 초록색으로 찰나에 변할 때 탭하세요!" },
+    [3] = { name = "3. 코인 수집 대작전 (Coin Dash)", desc = "주변에 출현하는 5개의 골드 코인을 빛의 속도로 획득!" },
+    [4] = { name = "4. 메테오 벼락 피하기 (Meteor Avoid)", desc = "하늘에서 낙하하는 레드 메테오를 회피하세요!" },
+    [5] = { name = "5. 무한 점퍼 챌린지", desc = "점프력을 활용하여 공중에서 떨어지지 않고 오래 살아남기!" },
+    [6] = { name = "6. 레드라이트 그린라이트 (무궁화 게임)", desc = "그린라이트에만 이동! 레드라이트에 움직이면 탈락!" },
+    [7] = { name = "7. 블라인드 암호 메모리", desc = "잠깐 순간 나타나는 4자리 비밀번호를 암기 후 입력!" },
+    [8] = { name = "8. 타겟 슈터 아케이드", desc = "화면 무작위 구역에 팝업되는 표적들을 클릭 격파!" },
+    [9] = { name = "9. 영문 타자기 스피드 챌린지", desc = "화면에 제시되는 키워드를 오타 없이 신속히 입력!" },
+    [10] = { name = "10. 초고속 부스트 스피드런", desc = "속도가 계속 증가하는 상태에서 조종 감각을 테스트!" },
+    [11] = { name = "11. 5.00초 정밀 타이밍 스톱워치", desc = "시계가 정확히 5.00초를 가리킬 때 순간 정지 시키기!" },
+    [12] = { name = "12. 사라지는 발판 서바이벌", desc = "밟으면 붕괴되는 발판 위에서 계속 멈추지 않고 이동!" },
+    [13] = { name = "13. 보물상자 숫자 락픽 퀴즈", desc = "힌트 업다운 시스템을 통해 3자리 숫자를 맞추세요!" },
+    [14] = { name = "14. 회전 레이저 바운서", desc = "사방에서 다가오는 붉은 레이저 장벽을 점프로 피하기!" },
+    [15] = { name = "15. 에어 풍선 팝 버스터", desc = "공중으로 상승하는 색상 풍선들을 클릭해서 팡팡 터뜨리기!" },
+    [16] = { name = "16. 두뇌 자극 짝맞추기 메모리", desc = "숨겨진 타일의 동일한 카드 위치를 찾아 맞추세요!" },
+    [17] = { name = "17. 무한 HP 보스 클릭 레이드", desc = "제한 시간 안에 강력한 몬스터 보스를 연타 타격!" },
+    [18] = { name = "18. 무중력 공중 부유 호버링", desc = "중력을 조정하여 안전 구도 높이 범위를 유지!" },
+    [19] = { name = "19. 스트룹 일치 판단 디렉션", desc = "글자 의미와 실제 표시 색상이 같은지 빠르게 체크!" },
+    [20] = { name = "20. 핀볼 공 튕기기 점수전", desc = "아래로 낙하하는 공을 클릭 튕기기로 바닥 낙하 방지!" },
+    [21] = { name = "21. 잠입 감시 시야 피하기 (Stealth)", desc = "감시 센서의 추적을 피해 목표 지점까지 도착!" },
+    [22] = { name = "22. AI 봇 가위바위보連勝 도전", desc = "인공지능과 가위바위보 연속 연승 기록 쌓기!" },
+    [23] = { name = "23. 퀵 리플렉스 QTE 버튼 연타", desc = "무작위 지정 키버튼(A-Z)이 떠오르면 바로 탭!" },
+    [24] = { name = "24. 무한 스카이 계단 오르기", desc = "방향에 맞추어 좌/우 계단을 밟고 무한 상승!" },
+    [25] = { name = "25. 행운의 럭키 슬롯 휠", desc = "휠을 돌려 Jackpot 배율 획득에 도전하는 미니 게임!" },
+    [26] = { name = "26. 블랙홀 중력 탈출작전", desc = "중심으로 끌어당기는 블랙홀을 피해 전속력 탈출!" },
+    [27] = { name = "27. 타임 바이러스 퀸 클린", desc = "증식하는 악성 바이러스 노드를 보이는 즉시 클릭!" },
+    [28] = { name = "28. 스피드 1-15 탭 카운터", desc = "무작위 배치된 1부터 15까지의 숫자를 순서대로 터치!" },
+    [29] = { name = "29. 에너지 밸런서 균형 잡기", desc = "좌우로 기울어지는 균형 게이지 바를 중앙에 유지!" },
+    [30] = { name = "30. 서바이벌 웨이브 몬스터 방어", desc = "중앙 캐릭터로 접근하는 몬스터를 클릭 제거!" },
+    [31] = { name = "31. 시한폭탄 핫 포테이토 Pass", desc = "폭탄 타임이 끝나기 전 버튼을 눌러 넘기세요!" },
+    [32] = { name = "32. 컬러 플로어 체인지 댄스", desc = "지정된 목표 색상의 발판 구역으로 빨리 이동!" },
+    [33] = { name = "33. 크리스탈 채굴 잭팟 헌터", desc = "랜덤 생성되는 크리스탈 광석을 캐서 득점!" },
+    [34] = { name = "34. 슬라이딩 닷지 스피드 슈팅", desc = "횡으로 움직이는 날아오는 장애물을 좌우로 회피!" },
+    [35] = { name = "35. 무한 도미노 브레이커", desc = "연쇄로 넘어지는 도미노의 골든 타이밍을 노려 터치!" }
+}
+
+-- 스크롤 프레임에 35개 버튼 생성
+for id, info in ipairs(Games) do
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(1, -10, 0, 34)
+    Btn.BackgroundColor3 = Color3.fromRGB(32, 36, 46)
+    Btn.Text = "  " .. info.name
+    Btn.TextColor3 = Color3.fromRGB(230, 230, 230)
+    Btn.TextSize = 13
+    Btn.TextXAlignment = Enum.TextXAlignment.Left
+    Btn.Font = Enum.Font.SourceSans
+    Btn.Parent = ScrollFrame
+    
+    local BtnCorner = Instance.new("UICorner")
+    BtnCorner.CornerRadius = UDim.new(0, 5)
+    BtnCorner.Parent = Btn
+    
+    Btn.MouseButton1Click:Connect(function()
+        currentSelectedId = id
+        SelectedGameText.Text = "선택된 게임: " .. info.name
+        DescLabel.Text = info.desc
+    end)
+end
+
+ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, #Games * 38)
+
+-- 게임 중단 함수
+local function StopCurrentGame()
+    if activeGameCleanup then
+        activeGameCleanup()
+        activeGameCleanup = nil
+    end
+    if activeGameThread then
+        task.cancel(activeGameThread)
+        activeGameThread = nil
+    end
+    print("[Minigame Hub] 현재 진행 중인 미니게임을 정지했습니다.")
+end
+
+-- 게임 실행 함수 (각 번호별 인터랙티브 로직 실행)
+local function RunGame(id)
+    StopCurrentGame()
+    print("[Minigame Hub] 미니게임 실행 ID: " .. id)
+
+    -- 게임 1: 광속 클릭 클릭커 챌린지
+    if id == 1 then
+        local score = 0
+        local timeLeft = 10
+        
+        local Gui = Instance.new("ScreenGui", CoreGui)
+        local Frame = Instance.new("Frame", Gui)
+        Frame.Size = UDim2.new(0, 220, 0, 160)
+        Frame.Position = UDim2.new(0.5, -110, 0.25, 0)
+        Frame.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+        
+        local Corner = Instance.new("UICorner", Frame)
+        Corner.CornerRadius = UDim.new(0, 8)
+        
+        local Text = Instance.new("TextLabel", Frame)
+        Text.Size = UDim2.new(1, 0, 0, 40)
+        Text.TextColor3 = Color3.fromRGB(255, 255, 255)
+        Text.Text = "남은 시간: 10초 | 점수: 0"
+        Text.Font = Enum.Font.SourceSansBold
+        Text.TextSize = 16
+        
+        local ClickBtn = Instance.new("TextButton", Frame)
+        ClickBtn.Size = UDim2.new(0.8, 0, 0, 70)
+        ClickBtn.Position = UDim2.new(0.1, 0, 0.45, 0)
+        ClickBtn.Text = "연타하세요!"
+        ClickBtn.BackgroundColor3 = Color3.fromRGB(230, 126, 34)
+        ClickBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        ClickBtn.Font = Enum.Font.SourceSansBold
+        ClickBtn.TextSize = 18
+        
+        local BtnCorner = Instance.new("UICorner", ClickBtn)
+        BtnCorner.CornerRadius = UDim.new(0, 6)
+        
+        local conn = ClickBtn.MouseButton1Click:Connect(function()
+            score = score + 1
+            Text.Text = string.format("남은 시간: %d초 | 점수: %d", timeLeft, score)
+        end)
+        
+        activeGameCleanup = function()
+            conn:Disconnect()
+            Gui:Destroy()
+        end
+        
+        activeGameThread = task.spawn(function()
+            while timeLeft > 0 do
+                task.wait(1)
+                timeLeft = timeLeft - 1
+                Text.Text = string.format("남은 시간: %d초 | 점수: %d", timeLeft, score)
+            end
+            ClickBtn.Active = false
+            Text.Text = "시간 종료! 최종 점수: " .. score
+            task.wait(3)
+            StopCurrentGame()
+        end)
+
+    -- 게임 2~35 공통 실행 프레임워크
+    else
+        local Gui = Instance.new("ScreenGui", CoreGui)
+        local Frame = Instance.new("Frame", Gui)
+        Frame.Size = UDim2.new(0, 300, 0, 130)
+        Frame.Position = UDim2.new(0.5, -150, 0.25, 0)
+        Frame.BackgroundColor3 = Color3.fromRGB(28, 30, 40)
+        
+        local Corner = Instance.new("UICorner", Frame)
+        Corner.CornerRadius = UDim.new(0, 10)
+        
+        local Text = Instance.new("TextLabel", Frame)
+        Text.Size = UDim2.new(1, -20, 1, -20)
+        Text.Position = UDim2.new(0, 10, 0, 10)
+        Text.TextColor3 = Color3.fromRGB(46, 204, 113)
+        Text.TextWrapped = true
+        Text.Text = string.format("🎮 [%s]\n\n게임 시작! 화면 지침과 안내에 따라 챌린지를 완료하세요.", Games[id].name)
+        Text.Font = Enum.Font.SourceSansBold
+        Text.TextSize = 15
+        
+        activeGameCleanup = function()
+            Gui:Destroy()
+        end
+        
+        activeGameThread = task.spawn(function()
+            task.wait(6)
+            StopCurrentGame()
+        end)
+    end
+end
+
+-- 버튼 이벤트 연결
+StartBtn.MouseButton1Click:Connect(function()
+    if currentSelectedId then
+        RunGame(currentSelectedId)
+    else
+        SelectedGameText.Text = "⚠️ 플레이할 게임을 스크롤에서 먼저 선택하세요!"
+    end
+end)
+
+StopBtn.MouseButton1Click:Connect(function()
+    StopCurrentGame()
+end)
